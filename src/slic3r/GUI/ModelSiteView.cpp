@@ -482,6 +482,23 @@ void ModelSiteView::apply_user_agent()
         m_browser->SetUserAgent(elegoo_user_agent());
 }
 
+bool ModelSiteView::unlayered_signed_in() { return !unlayered_token().empty(); }
+
+void ModelSiteView::unlayered_sign_out() { unlayered_set_token({}); }
+
+void ModelSiteView::unlayered_start_sign_in()
+{
+    if (m_site != "unlayered")
+        return;
+    // The start page's path and query, as the provider's sign-in hands back to it.
+    const wxURI uri(home_url());
+    wxString    next = uri.GetPath();
+    if (uri.HasQuery())
+        next += "?" + uri.GetQuery();
+    m_loaded = true;
+    unlayered_sign_in(next.utf8_string());
+}
+
 wxString ModelSiteView::home_url() const
 {
     AppConfig* cfg = wxGetApp().app_config;
