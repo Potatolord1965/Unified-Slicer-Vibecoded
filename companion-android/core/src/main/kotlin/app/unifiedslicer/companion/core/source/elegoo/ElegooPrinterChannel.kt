@@ -1,5 +1,6 @@
 package app.unifiedslicer.companion.core.source.elegoo
 
+import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.net.el
 import app.unifiedslicer.companion.core.net.int
 import app.unifiedslicer.companion.core.net.obj
@@ -63,6 +64,10 @@ class ElegooPrinterChannel private constructor(private val printerUser: String) 
     companion object {
         const val AGORA_APP_ID = "d035320941e34cd5bc4ec106eff05580" // public, from Elegoo's open-source elegoo-link
         const val M_START_PRINT = 1020
+        const val M_PAUSE_PRINT = 1021
+        const val M_STOP_PRINT = 1022
+        const val M_RESUME_PRINT = 1023
+        const val M_SET_TEMPERATURE = 1028
         const val M_DOWNLOAD_FILE = 1057
         const val M_CANCEL_DOWNLOAD = 1058
         const val M_DOWNLOAD_PROGRESS = 6006
@@ -77,7 +82,19 @@ class ElegooPrinterChannel private constructor(private val printerUser: String) 
 
 class ElegooPrinterError(val code: Int, method: Int) : IOException(
     when (code) {
+        1009 -> "The printer is busy (error 1009)"
+        1010 -> "The printer is not printing (error 1010)"
         1026 -> "The printer has no bed mesh yet (error 1026)"
         else -> "The printer refused the request (method $method, error $code)"
     }
 )
+
+/** The printer method and params for [command], the same over the cloud and the local network. */
+fun elegooRequest(command: PrinterCommand): Pair<Int, JsonObject> = when (command) {
+    PrinterCommand.Pause -> ElegooPrinterChannel.M_PAUSE_PRINT to JsonObject(emptyMap())
+    PrinterCommand.Resume -> ElegooPrinterChannel.M_RESUME_PRINT to JsonObject(emptyMap())
+    PrinterCommand.Stop -> ElegooPrinterChannel.M_STOP_PRINT to JsonObject(emptyMap())
+    is PrinterCommand.SetNozzle -> ElegooPrinterChannel.M_SET_TEMPERATURE to buildJsonObject { put("extruder", command.celsius) }
+    is PrinterCommand.SetBed -> ElegooPrinterChannel.M_SET_TEMPERATURE to buildJsonObject { put("heater_bed", command.celsius) }
+    is PrinterCommand.Light, is PrinterCommand.Speed -> throw IOException("Not available on Elegoo printers from this app")
+}

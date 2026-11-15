@@ -1,5 +1,9 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import app.unifiedslicer.companion.core.camera.CameraCapable
+import app.unifiedslicer.companion.core.camera.CameraFeed
 import app.unifiedslicer.companion.core.model.LanPrinter
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -19,7 +23,7 @@ import app.unifiedslicer.companion.core.source.SourceContext
 import okhttp3.MultipartBody
 import kotlinx.serialization.json.JsonElement
 
-class OctoPrintSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable {
+class OctoPrintSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable {
     override val via = "LAN · OctoPrint"
 
     override suspend fun read(): PrinterStatus {
@@ -44,6 +48,17 @@ class OctoPrintSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
         ctx.http.forUploads().fetchText(request("/api/files/local").post(body).build())
         progress.update(100, "Print started")
     }
+
+    override suspend fun control(deviceId: String, command: PrinterCommand) = when (command) {
+        PrinterCommand.Pause -> post("/api/job", """{"command":"pause","action":"pause"}""")
+        PrinterCommand.Resume -> post("/api/job", """{"command":"pause","action":"resume"}""")
+        PrinterCommand.Stop -> post("/api/job", """{"command":"cancel"}""")
+        is PrinterCommand.SetNozzle -> post("/api/printer/tool", """{"command":"target","targets":{"tool0":${command.celsius}}}""")
+        is PrinterCommand.SetBed -> post("/api/printer/bed", """{"command":"target","target":${command.celsius}}""")
+        is PrinterCommand.Light, is PrinterCommand.Speed -> throw java.io.IOException("Not available on OctoPrint from this app")
+    }
+
+    override suspend fun camera(deviceId: String): CameraFeed = CameraFeed.Http(resolve("/webcam/?action=snapshot"))
 
     fun parse(printer: JsonElement, job: JsonElement): PrinterStatus {
         val flags = printer.obj("state").obj("flags")

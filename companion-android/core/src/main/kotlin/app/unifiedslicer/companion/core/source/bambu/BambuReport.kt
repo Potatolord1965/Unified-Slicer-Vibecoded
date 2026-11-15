@@ -1,5 +1,6 @@
 package app.unifiedslicer.companion.core.source.bambu
 
+import app.unifiedslicer.companion.core.net.arr
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -64,6 +65,8 @@ object BambuReport {
             nozzle = temp("nozzle_temper", "nozzle_target_temper"),
             bed = temp("bed_temper", "bed_target_temper"),
             chamber = print.num("chamber_temper")?.takeIf { it > 0 }?.let { Temperature(it) },
+            light = print.arr("lights_report")?.firstOrNull { it.str("node") == "chamber_light" }?.str("mode")?.let { it != "off" },
+            speedLevel = print.int("spd_lvl")?.takeIf { state.active },
             alert = if (err != 0L) "Error %08X".format(err) else null,
             updatedAt = updatedAt,
         )

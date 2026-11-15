@@ -1,5 +1,9 @@
 package app.unifiedslicer.companion.core.source.elegoo
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.LanPrinter
 import app.unifiedslicer.companion.core.model.PrinterState
@@ -43,7 +47,7 @@ import kotlin.random.Random
  * elegoo_cc2_lan.py: serial from http://<ip>/system/info, then MQTT on port 1883 (user "elegoo",
  * password = access code), register, request the full status (1002) and merge 6000 pushes.
  */
-class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceContext) : PrinterSource, PrintCapable {
+class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceContext) : PrinterSource, PrintCapable, Controllable {
     private val host = bareHost(account.host)
     private val code = account.secret.ifEmpty { DEFAULT_ACCESS_CODE }
     private val clientId = "1_PC_" + Random.nextInt(1000, 10000)
@@ -100,23 +104,43 @@ class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceC
         }
 
         progress.update(100, "Starting the print…")
-        val waiter = CompletableDeferred<JsonElement>()
-        startReply = waiter
-        val request = buildJsonObject {
-            put("id", START_ID); put("method", M_START)
-            putJsonObject("params") {
-                put("storage_media", "local"); put("filename", job.name)
-                putJsonObject("config") { put("delay_video", false); put("printer_check", true); put("print_layout", "A"); putJsonArray("slot_map") {} }
-            }
+        val start = buildJsonObject {
+            put("storage_media", "local"); put("filename", job.name)
+            putJsonObject("config") { put("delay_video", false); put("printer_check", true); put("print_layout", "A"); putJsonArray("slot_map") {} }
         }
-        l.publish("elegoo/$serial/$clientId/api_request", request.toString())
-        val reply = withTimeoutOrNull(10_000) { waiter.await() } ?: throw IOException("The printer did not confirm the start")
-        val err = (reply.el("result") as? JsonObject).int("error_code") ?: 0
-        if (err != 0) throw IOException("The printer refused to start the print (error $err)")
+        try {
+            request(l, M_START, start)
+        } catch (e: ElegooPrinterError) {
+            throw IOException("The printer refused to start the print (error ${e.code})")
+        }
         progress.update(100, "Print started")
     }
 
-    @Volatile private var startReply: CompletableDeferred<JsonElement>? = null
+    override suspend fun control(deviceId: String, command: PrinterCommand) {
+        val (method, params) = elegooRequest(command)
+        refresh()
+        val l = link?.takeIf { it.isConnected } ?: throw IOException("The printer is not reachable on this network")
+        request(l, method, params)
+    }
+
+    private val pending = ConcurrentHashMap<Int, CompletableDeferred<JsonElement>>()
+    private val nextId = AtomicInteger(2000)
+
+    /** One request on the printer's API topic; replies are matched by id. */
+    private suspend fun request(l: MqttLink, method: Int, params: JsonObject): JsonElement {
+        val id = nextId.incrementAndGet()
+        val waiter = CompletableDeferred<JsonElement>()
+        pending[id] = waiter
+        try {
+            l.publish("elegoo/$serial/$clientId/api_request", buildJsonObject { put("id", id); put("method", method); put("params", params) }.toString())
+            val reply = withTimeoutOrNull(10_000) { waiter.await() } ?: throw IOException("The printer did not answer")
+            val err = (reply.el("result") as? JsonObject).int("error_code") ?: 0
+            if (err != 0) throw ElegooPrinterError(err, method)
+            return reply
+        } finally {
+            pending.remove(id)
+        }
+    }
 
     private fun deviceId() = serial.ifEmpty { host }
     private fun offline() = PrinterStatus(account.id, deviceId(), account.label, "Centauri Carbon 2", Brand.ELEGOO, VIA, PrinterState.OFFLINE)
@@ -152,10 +176,7 @@ class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceC
                 link?.publish("elegoo/$serial/$clientId/api_request", """{"id":1,"method":$M_STATUS,"params":{}}""")
             return
         }
-        if (topic.endsWith("/api_response") && msg.int("id") == START_ID) {
-            startReply?.complete(msg)
-            return
-        }
+        if (topic.endsWith("/api_response")) pending[msg.int("id") ?: 0]?.let { it.complete(msg); return }
         val result = msg.el("result") as? JsonObject ?: return
         val method = msg.int("method")
         when {
@@ -176,7 +197,6 @@ class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceC
         const val DEFAULT_ACCESS_CODE = "123456"
         const val M_STATUS = 1002
         const val M_START = 1020
-        const val START_ID = 1020
         const val CHUNK = 1L shl 20
         const val M_STATUS_PUSH = 6000
     }

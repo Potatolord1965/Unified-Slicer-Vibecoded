@@ -52,6 +52,10 @@ import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import app.unifiedslicer.companion.core.source.controlsFor
+import app.unifiedslicer.companion.core.camera.hasCamera
+import app.unifiedslicer.companion.core.model.PrinterState
+import app.unifiedslicer.companion.ui.theme.color
 import app.unifiedslicer.companion.CompanionApp
 import app.unifiedslicer.companion.R
 import app.unifiedslicer.companion.core.model.Account
@@ -157,7 +161,19 @@ fun CompanionNav(app: CompanionApp, dark: Boolean, openPrinter: String?, onPrint
         }
         composable("printer/{key}") { entry ->
             val key = entry.arguments?.getString("key")?.let { Uri.decode(it) }
-            PrinterDetailScreen(snapshot?.printers?.firstOrNull { it.key == key }) { nav.popBackStack() }
+            val printer = snapshot?.printers?.firstOrNull { it.key == key }
+            val account = accounts.firstOrNull { it.id == printer?.accountId }
+            val cameraPanel: (@Composable () -> Unit)? =
+                if (printer != null && account != null && hasCamera(account) && printer.state != PrinterState.OFFLINE) {
+                    { CameraPanel(app.printers, printer, printer.brand.color()) }
+                } else null
+            PrinterDetailScreen(
+                p = printer,
+                controls = account?.let(::controlsFor).orEmpty(),
+                onCommand = { command -> printer?.let { app.printers.control(it, command) } },
+                camera = cameraPanel,
+                onBack = { nav.popBackStack() },
+            )
         }
         composable("site/{site}") { entry ->
             val site = runCatching { ModelSite.valueOf(entry.arguments?.getString("site").orEmpty()) }.getOrDefault(ModelSite.MAKERWORLD)
