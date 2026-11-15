@@ -52,6 +52,7 @@
 #define TAB_ID_MULTI_DEVICE  "multi_device"
 #define TAB_ID_PROJECT       "project"
 #define TAB_ID_CALIBRATION   "calibration"
+#define TAB_ID_ACCOUNTS      "accounts"
 
 #define ENABEL_PRINT_ALL 0
 
@@ -98,6 +99,7 @@ class DesignPanel;
 class MainFrame;
 class WebViewPanel;
 class DeviceHubPanel;
+class AccountsPanel;
 class ParamsDialog;
 enum class Shortcut : uint8_t;
 struct KeyChord;
@@ -539,6 +541,8 @@ public:
     // Unified Slicer: the Device tab. Its rail switches between the selected printer's pages
     // (m_monitor_page, m_printer_view_page, both children of its book) and each cloud service.
     DeviceHubPanel*       m_device_hub{nullptr};
+    // Unified Slicer: the Accounts tab, every account the app signs in to.
+    AccountsPanel*        m_accounts_page{nullptr};
     PluginPages           m_plugin_pages;
     wxLogWindow*          m_log_window { nullptr };
     // BBS

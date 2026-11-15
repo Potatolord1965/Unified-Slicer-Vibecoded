@@ -49,6 +49,12 @@ public:
     // True once the start page has been asked for (preload or first open).
     bool loaded() const { return m_loaded; }
 
+    // Unlayered account: whether this installation holds a device token, and forgetting it.
+    static bool unlayered_signed_in();
+    static void unlayered_sign_out();
+    // Unlayered: starts the device sign-in; the view then shows its start page signed in.
+    void unlayered_start_sign_in();
+
 private:
     wxString home_url() const;
     void     create_toolbar();

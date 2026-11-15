@@ -51,18 +51,6 @@ bool card_view_setting() { return wxGetApp().app_config->get(VIEW_SETTING) == "c
 
 wxString progress_text(const CloudPrinter& p) { return p.progress >= 0 ? wxString::Format("%d%%", p.progress) : wxString(); }
 
-// Primary-button look in a brand colour, or the app's own when the colour is invalid.
-void style_primary(Button* button, ButtonType type, const wxColour& brand)
-{
-    button->SetStyle(ButtonStyle::Confirm, type);
-    if (!brand.IsOk())
-        return;
-    const wxColour hover = StateColor::LightenDarkenColor(brand, 20);
-    button->SetBackgroundColor(StateColor(std::pair<wxColour, int>(hover, StateColor::Hovered),
-                                          std::pair<wxColour, int>(brand, StateColor::Normal)));
-    button->SetBorderColor(StateColor(brand));
-    button->SetTextColor(StateColor(*wxWHITE));
-}
 
 // The printer's picture: the provider's bitmap, else the vendor profile's cover picture of a
 // printer model of that name, else a generic one.
@@ -239,6 +227,18 @@ public:
 };
 
 } // namespace
+
+void style_primary(Button* button, ButtonType type, const wxColour& brand)
+{
+    button->SetStyle(ButtonStyle::Confirm, type);
+    if (!brand.IsOk())
+        return;
+    const wxColour hover = StateColor::LightenDarkenColor(brand, 20);
+    button->SetBackgroundColor(StateColor(std::pair<wxColour, int>(hover, StateColor::Hovered),
+                                          std::pair<wxColour, int>(brand, StateColor::Normal)));
+    button->SetBorderColor(StateColor(brand));
+    button->SetTextColor(StateColor(*wxWHITE));
+}
 
 // ---------------------------------------------------------------------------------------------
 // CloudProviderPage

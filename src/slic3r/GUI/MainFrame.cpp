@@ -20,6 +20,7 @@
 #include "slic3r/GUI/Project.hpp"
 #include <wx/bookctrl.h>
 #include "slic3r/GUI/DeviceHub/DeviceHubPanel.hpp"
+#include "slic3r/GUI/AccountsPanel.hpp"
 #include "slic3r/GUI/LazyPage.hpp"
 #include "slic3r/GUI/Monitor.hpp"
 #include "slic3r/GUI/PrinterWebView.hpp"
@@ -1649,6 +1650,13 @@ void MainFrame::init_tabpanel() {
     m_lazy_pages.push_back(m_calibration_page);
     m_tabpanel->AddPage(TAB_ID_CALIBRATION, m_calibration_page, _L("Calibration"), "tab_calibration_active");
 
+    // Unified Slicer: sign in and out of every account in one place. Last of the built-in tabs;
+    // show_device() re-inserts Calibration after Project, so it stays before this one.
+    if (wxGetApp().is_editor()) {
+        m_accounts_page = new AccountsPanel(m_tabpanel);
+        m_tabpanel->AddPage(TAB_ID_ACCOUNTS, m_accounts_page, _L("Accounts"), "tab_accounts_active");
+    }
+
     // Plugin pages are appended after the built-in tabs; their ids are namespaced
     // (plugin.<plugin_key>.<name>) so they can't collide with the built-in TAB_ID_* constants.
     m_plugin_pages.initialize(m_tabpanel);
@@ -2721,6 +2729,8 @@ void MainFrame::on_dpi_changed(const wxRect& suggested_rect)
     ProjectPanel::when_built([](ProjectPanel& project) { project.msw_rescale(); });
     MonitorPanel::when_built([](MonitorPanel& monitor) { monitor.msw_rescale(); });
     m_device_hub->msw_rescale();
+    if (m_accounts_page)
+        m_accounts_page->msw_rescale();
     MultiMachinePage::when_built([](MultiMachinePage& multi_machine) { multi_machine.msw_rescale(); });
     CalibrationPanel::when_built([](CalibrationPanel& calibration) { calibration.msw_rescale(); });
 #ifdef SLIC3R_CAD
@@ -2790,6 +2800,8 @@ void MainFrame::on_sys_color_changed()
     wxGetApp().plater()->sys_color_changed();
     MonitorPanel::when_built([](MonitorPanel& monitor) { monitor.on_sys_color_changed(); });
     m_device_hub->on_sys_color_changed();
+    if (m_accounts_page)
+        m_accounts_page->on_sys_color_changed();
     CalibrationPanel::when_built([](CalibrationPanel& calibration) { calibration.on_sys_color_changed(); });
 #ifdef SLIC3R_CAD
     DesignPanel::when_built([](DesignPanel& design) { design.on_sys_color_changed(); });

@@ -17,8 +17,12 @@ class wxScrolledWindow;
 class wxSimplebook;
 class wxStaticText;
 class Button;
+enum class ButtonType;
 
 namespace Slic3r { namespace GUI {
+
+// Primary-button look in a brand colour, or the app's own when the colour is invalid.
+void style_primary(Button* button, ButtonType type, const wxColour& brand);
 
 // Account header and printers of one cloud service, or of all of them when built without a
 // provider (the "All printers" page). The printers show as a list or as cards; the choice is the

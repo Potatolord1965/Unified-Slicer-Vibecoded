@@ -420,6 +420,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/TextureImportDialog.hpp
     GUI/Mouse3DController.cpp
     GUI/Mouse3DController.hpp
+    GUI/AccountsPanel.cpp
+    GUI/AccountsPanel.hpp
     GUI/ModelSiteView.cpp
     GUI/ModelSiteView.hpp
     GUI/MsgDialog.cpp

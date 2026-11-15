@@ -141,6 +141,8 @@ public:
     // homepage nav column and loads `site`'s home page; an empty or unknown id hides the pane.
     // Model files and "Open in slicer" links followed in the pane are imported into the plater.
     void set_model_site(const std::string& site);
+    // The view of `site`, created hidden in the content sizer when `create` and it does not exist.
+    ModelSiteView* model_view(const std::string& site, bool create);
 
     // Id of the model site shown in the pane, or empty while the pane is hidden.
     std::string model_site() const { return shown_model_view() != nullptr ? m_model_site : std::string(); }
@@ -176,8 +178,6 @@ private:
     void clear_cloud_storage();
     // Re-applies the content sizer's proportions and min sizes for the cloud state.
     void apply_cloud_layout(bool cloud_on);
-    // The view of `site`, created hidden in the content sizer when `create` and it does not exist.
-    ModelSiteView* model_view(const std::string& site, bool create);
     ModelSiteView* shown_model_view() const;
 
     wxWebView* m_browser;
