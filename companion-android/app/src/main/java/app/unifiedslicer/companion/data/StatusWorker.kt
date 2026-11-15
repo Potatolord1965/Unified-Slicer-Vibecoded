@@ -21,7 +21,7 @@ class StatusWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         // While the app is open its live view already watches (and renews tokens); two clients
         // renewing one Elegoo session at once would sign it out.
         if (app.inForeground || accounts.isEmpty()) return Result.success()
-        val hub = PrinterHub(SourceContext(app.http) { app.accounts.update(it) })
+        val hub = PrinterHub(SourceContext(app.http, { app.accounts.update(it) }))
         try {
             hub.setAccounts(accounts)
             app.notifier.process(hub.refresh(timeoutMs = 20_000))
