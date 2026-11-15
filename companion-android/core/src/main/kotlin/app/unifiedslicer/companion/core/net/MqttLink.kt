@@ -10,14 +10,9 @@ import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import java.io.Closeable
-import java.security.SecureRandom
-import java.security.cert.X509Certificate
 import java.util.UUID
 import java.util.concurrent.Executors
-import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 /**
  * A kept-open MQTT connection (Eclipse Paho). Subscribes [topics] on every (re)connect and then
@@ -73,7 +68,7 @@ class MqttLink(
             connectionTimeout = 10
             keepAliveInterval = 30
             if (uri.startsWith("ssl://")) {
-                socketFactory = if (insecureTls) trustAllSocketFactory() else SSLSocketFactory.getDefault()
+                socketFactory = if (insecureTls) insecureSocketFactory() else SSLSocketFactory.getDefault()
                 isHttpsHostnameVerificationEnabled = !insecureTls
             }
         }
@@ -99,16 +94,5 @@ class MqttLink(
             runCatching { client.close(true) }
         }
         worker.shutdown()
-    }
-
-    private companion object {
-        fun trustAllSocketFactory(): SSLSocketFactory {
-            val trustAll = object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            }
-            return SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(trustAll), SecureRandom()) }.socketFactory
-        }
     }
 }

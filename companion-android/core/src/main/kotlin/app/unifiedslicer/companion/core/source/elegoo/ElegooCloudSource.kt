@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.elegoo
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.model.ElegooAccount
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.model.PrinterState
@@ -49,7 +51,7 @@ import java.io.IOException
  * Elegoo Cloud (matrix.elegoo.com), as used by ElegooSlicer and Unified Slicer: bound printers
  * from device/list, last reported status from device/report-data/list.
  */
-class ElegooCloudSource(account: ElegooAccount, private val ctx: SourceContext) : PrinterSource, PrintCapable {
+class ElegooCloudSource(account: ElegooAccount, private val ctx: SourceContext) : PrinterSource, PrintCapable, Controllable {
     override var account: ElegooAccount = account
         private set
 
@@ -83,7 +85,7 @@ class ElegooCloudSource(account: ElegooAccount, private val ctx: SourceContext) 
      * messaging to download it (1057, progress 6006), then start it (1020).
      */
     override suspend fun print(deviceId: String, job: PrintJob, progress: SendProgress) {
-        val rtm = ctx.rtm ?: throw IOException("Elegoo cloud printing is not available on this device")
+        if (ctx.rtm == null) throw IOException("Elegoo cloud printing is not available on this device")
         val serial = deviceId
         val name = if (hasExtension(job.name, ".gcode", ".3mf")) job.name else job.name + ".gcode"
         progress.update(0, "Checking the printer…")
@@ -110,10 +112,7 @@ class ElegooCloudSource(account: ElegooAccount, private val ctx: SourceContext) 
         )
 
         progress.update(50, "Connecting to the printer…")
-        val token = call("GET", "/api/v1/device-management-server/device/list/agora-token?source=slicer").obj("data").obj("agoraToken")
-        val rtmUser = token.str("rtmUserId") ?: throw IOException("Elegoo did not return a messaging token for this account")
-        val rtmToken = token.str("rtmToken") ?: throw IOException("Elegoo did not return a messaging token for this account")
-        val channel = ElegooPrinterChannel.open(rtm, token.str("userId").orEmpty(), rtmUser, rtmToken, serial)
+        val channel = openChannel(serial)
         try {
             val task = buildJsonObject { put("taskID", serial) }
             runCatching { channel.request(ElegooPrinterChannel.M_CANCEL_DOWNLOAD, task, 5) } // nothing to cancel is fine
@@ -146,6 +145,25 @@ class ElegooCloudSource(account: ElegooAccount, private val ctx: SourceContext) 
                 channel.request(ElegooPrinterChannel.M_START_PRINT, start(true), 10)
             }
             progress.update(100, "Print started")
+        } finally {
+            channel.close()
+        }
+    }
+
+    /** A messaging session with one printer; the caller closes it. */
+    private suspend fun openChannel(serial: String): ElegooPrinterChannel {
+        val rtm = ctx.rtm ?: throw IOException("Elegoo cloud control is not available on this device")
+        val token = call("GET", "/api/v1/device-management-server/device/list/agora-token?source=slicer").obj("data").obj("agoraToken")
+        val rtmUser = token.str("rtmUserId") ?: throw IOException("Elegoo did not return a messaging token for this account")
+        val rtmToken = token.str("rtmToken") ?: throw IOException("Elegoo did not return a messaging token for this account")
+        return ElegooPrinterChannel.open(rtm, token.str("userId").orEmpty(), rtmUser, rtmToken, serial)
+    }
+
+    override suspend fun control(deviceId: String, command: PrinterCommand) {
+        val (method, params) = elegooRequest(command)
+        val channel = openChannel(deviceId)
+        try {
+            channel.request(method, params, 10)
         } finally {
             channel.close()
         }

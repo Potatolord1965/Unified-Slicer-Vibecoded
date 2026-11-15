@@ -14,6 +14,19 @@ Features: send sliced files to a printer (see below), live status (progress, tim
 
 The protocols are the ones Unified Slicer's desktop code uses (`src/slic3r/Utils/ElegooCloud.cpp`, `CrealityCloud.cpp`, `MarkforgedEiger.cpp`, `resources/plugins/elegoo_cc2_lan.py`); Bambu Cloud uses Bambu's public account API.
 
+## Controls and camera
+
+A printer's page has Pause / Resume / Stop, tap-to-set nozzle and bed temperatures, and on some printers a light switch and speed levels (`controlsFor` lists what each kind offers).
+
+| Printer | Commands |
+|---|---|
+| Bambu (cloud or LAN) | MQTT request topic: `pause` / `resume` / `stop`, `print_speed`, `ledctrl`, `gcode_line` for temperatures. Firmware with authorization control refuses unsigned commands unless Developer Mode is on; the app shows the refusal. |
+| Elegoo (cloud or LAN) | Methods 1021 pause, 1023 resume, 1022 stop, 1028 temperature |
+| Creality cloud | `iotrouter/rpc/twoway` with `{"method":"set","params":{…}}`, as Creality Print |
+| Klipper, OctoPrint, PrusaLink | Their HTTP APIs (PrusaLink: job control only) |
+
+The camera shows only for printers added by address on the local network, and connects after a tap on Watch: Klipper / OctoPrint / PrusaLink snapshots, Bambu A1 and P1 (JPEG over TLS on port 6000), Bambu X1 (RTSP over TLS on port 322; needs LAN Only Liveview on). Bambu, Elegoo and Creality cloud video run on closed services and are not available.
+
 ## Sending prints
 
 A phone cannot slice, so the app sends printer-ready files (G-code): one downloaded in the in-app MakerWorld / Nexprint / Creality Cloud browser, or one picked from the phone.

@@ -1,5 +1,8 @@
 package app.unifiedslicer.companion.core.source.creality
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import kotlinx.serialization.json.putJsonObject
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.CrealityAccount
 import app.unifiedslicer.companion.core.model.PrinterState
@@ -114,7 +117,8 @@ class CrealityApi(private val http: OkHttpClient, private val region: String, pr
     }
 }
 
-class CrealityCloudSource(override val account: CrealityAccount, private val ctx: SourceContext) : PrinterSource, PrintCapable {
+class CrealityCloudSource(override val account: CrealityAccount, private val ctx: SourceContext) : PrinterSource, PrintCapable, Controllable {
+    private val tbIds = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val api = CrealityApi(ctx.http, account.region, account.deviceUid)
 
     override suspend fun refresh(): List<PrinterStatus> {
@@ -187,6 +191,13 @@ class CrealityCloudSource(override val account: CrealityAccount, private val ctx
         progress.update(100, "Print started")
     }
 
+    /** As Creality Print: {"method":"set","params":{…}} relayed to the printer, which answers. */
+    override suspend fun control(deviceId: String, command: PrinterCommand) {
+        if (tbIds[deviceId] == null) refresh()
+        val tbId = tbIds[deviceId] ?: throw IOException("This printer does not take commands through Creality Cloud")
+        api.post("/api/rest/iotrouter/rpc/twoway/$tbId", buildJsonObject { put("method", "set"); put("params", controlParams(command)) }, account)
+    }
+
     private suspend fun status(dn: String, d: JsonElement): PrinterStatus {
         val rawModel = d.str("model").orEmpty()
         val model = if (rawModel.startsWith("CR-K1", ignoreCase = true)) rawModel.drop(3) else rawModel
@@ -195,6 +206,7 @@ class CrealityCloudSource(override val account: CrealityAccount, private val ctx
         val online = deviceState != -1
         if (!online) return PrinterStatus(account.id, dn, name, model, Brand.CREALITY, VIA, PrinterState.OFFLINE)
         val tbId = d.str("tbId")
+        if (tbId != null) tbIds[dn] = tbId
         val t: JsonObject = if (tbId != null) runCatching {
             parseTelemetry(api.get("/api/rest/iotrouter/$tbId/values/timeseries?keys=&useStrictDataTypes=true", account))
         }.getOrElse { if (it is AuthException) throw it else JsonObject(emptyMap()) } else JsonObject(emptyMap())
@@ -218,11 +230,24 @@ class CrealityCloudSource(override val account: CrealityAccount, private val ctx
             nozzle = temp("nozzleTemp", "targetNozzleTemp"),
             bed = temp("bedTemp0", "targetBedTemp0"),
             chamber = t.num("boxTemp")?.let { Temperature(it) },
+            light = t.int("lightSw")?.let { it != 0 },
         )
     }
 
     companion object {
         private const val VIA = "Creality Cloud"
+
+        fun controlParams(command: PrinterCommand): JsonObject = buildJsonObject {
+            when (command) {
+                PrinterCommand.Pause -> put("pause", 1)
+                PrinterCommand.Resume -> put("pause", 0)
+                PrinterCommand.Stop -> put("stop", 1)
+                is PrinterCommand.SetNozzle -> put("nozzleTempControl", command.celsius)
+                is PrinterCommand.SetBed -> putJsonObject("bedTempControl") { put("num", 0); put("val", command.celsius) }
+                is PrinterCommand.Light -> put("lightSw", if (command.on) 1 else 0)
+                is PrinterCommand.Speed -> throw IOException("Not available on Creality printers from this app")
+            }
+        }
 
         fun objectKey(displayName: String, fileMd5Hex: String): String {
             val digest = MessageDigest.getInstance("MD5").digest("$displayName:$fileMd5Hex".toByteArray())

@@ -1,5 +1,9 @@
 package app.unifiedslicer.companion.core
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import app.unifiedslicer.companion.core.camera.CameraCapable
+import app.unifiedslicer.companion.core.camera.CameraFeed
 import app.unifiedslicer.companion.core.model.Account
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.net.AuthException
@@ -88,6 +92,19 @@ class PrinterHub(private val ctx: SourceContext, private val factory: (Account, 
         val src = lock.withLock { sources[accountId]?.second } ?: throw java.io.IOException("This printer is no longer on your accounts")
         val capable = src as? PrintCapable ?: throw java.io.IOException("${src.account.kindLabel} printers cannot be sent prints from this app")
         capable.print(deviceId, job, progress)
+    }
+
+    /** Sends [command] to a printer. Throws with a readable message when it is refused. */
+    suspend fun control(accountId: String, deviceId: String, command: PrinterCommand) {
+        val src = lock.withLock { sources[accountId]?.second } ?: throw java.io.IOException("This printer is no longer on your accounts")
+        val target = src as? Controllable ?: throw java.io.IOException("${src.account.kindLabel} printers cannot be controlled from this app")
+        target.control(deviceId, command)
+    }
+
+    /** The camera of a printer, or null when this app cannot show one for it. */
+    suspend fun camera(accountId: String, deviceId: String): CameraFeed? {
+        val src = lock.withLock { sources[accountId]?.second }
+        return (src as? CameraCapable)?.camera(deviceId)
     }
 
     /** Drops open connections (e.g. when the app goes to the background); the next refresh reconnects. */

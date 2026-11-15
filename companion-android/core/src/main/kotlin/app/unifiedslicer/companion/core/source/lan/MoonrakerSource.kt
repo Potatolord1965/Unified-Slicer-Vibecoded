@@ -1,5 +1,11 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import app.unifiedslicer.companion.core.camera.CameraCapable
+import app.unifiedslicer.companion.core.camera.CameraFeed
+import app.unifiedslicer.companion.core.net.arr
+import app.unifiedslicer.companion.core.net.bool
 import app.unifiedslicer.companion.core.model.LanPrinter
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -19,7 +25,7 @@ import okhttp3.MultipartBody
 import kotlinx.serialization.json.JsonElement
 
 /** Klipper through Moonraker's HTTP API. */
-class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable {
+class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable {
     override val via = "LAN · Moonraker"
 
     override suspend fun read(): PrinterStatus {
@@ -43,6 +49,25 @@ class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
             .build()
         ctx.http.forUploads().fetchText(request("/server/files/upload").post(body).build())
         progress.update(100, "Print started")
+    }
+
+    override suspend fun control(deviceId: String, command: PrinterCommand) = when (command) {
+        PrinterCommand.Pause -> post("/printer/print/pause")
+        PrinterCommand.Resume -> post("/printer/print/resume")
+        PrinterCommand.Stop -> post("/printer/print/cancel")
+        is PrinterCommand.SetNozzle -> gcode("M104 S${command.celsius}")
+        is PrinterCommand.SetBed -> gcode("M140 S${command.celsius}")
+        is PrinterCommand.Light, is PrinterCommand.Speed -> throw java.io.IOException("Not available on Klipper printers from this app")
+    }
+
+    private suspend fun gcode(script: String) =
+        post("/printer/gcode/script?script=" + java.net.URLEncoder.encode(script, "UTF-8").replace("+", "%20"))
+
+    /** The first webcam configured in Moonraker, else the usual mjpg-streamer address. */
+    override suspend fun camera(deviceId: String): CameraFeed {
+        val cam = runCatching { get("/server/webcams/list").obj("result").arr("webcams")?.firstOrNull { it.bool("enabled") != false } }.getOrNull()
+        val url = cam.str("snapshot_url")?.takeIf { it.isNotBlank() } ?: "/webcam/?action=snapshot"
+        return CameraFeed.Http(resolve(url))
     }
 
     fun parse(s: JsonElement?): PrinterStatus {

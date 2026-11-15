@@ -4,7 +4,11 @@ import app.unifiedslicer.companion.core.HubSnapshot
 import app.unifiedslicer.companion.core.PrinterHub
 import app.unifiedslicer.companion.core.source.SourceContext
 import app.unifiedslicer.companion.core.model.PrinterStatus
+import app.unifiedslicer.companion.core.camera.CameraFeed
 import app.unifiedslicer.companion.core.source.PrintJob
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -19,7 +23,7 @@ import kotlinx.coroutines.sync.Mutex
 import okhttp3.OkHttpClient
 
 /** Live printer status for the UI. The activity drives [refresh] on a timer while it is visible. */
-class PrinterRepository(http: OkHttpClient, private val store: AccountStore, private val notifier: TransitionNotifier) {
+class PrinterRepository(val http: OkHttpClient, private val store: AccountStore, private val notifier: TransitionNotifier) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val hub = PrinterHub(SourceContext(http, { store.update(it) }, AgoraRtm))
     private val running = Mutex()
@@ -89,6 +93,22 @@ class PrinterRepository(http: OkHttpClient, private val store: AccountStore, pri
     fun cancelSend() { sendJob?.cancel() }
 
     fun clearSend() { if (_send.value?.running != true) _send.value = null }
+
+    /** Sends [command]; returns why it failed, or null when the printer took it. */
+    suspend fun control(printer: PrinterStatus, command: PrinterCommand): String? = withContext(Dispatchers.Default) {
+        try {
+            hub.control(printer.accountId, printer.deviceId, command)
+            scope.launch { delay(1500); refresh() }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: e.javaClass.simpleName
+        }
+    }
+
+    /** The camera of [printer], or null when the app cannot show one for it. Throws when it is switched off. */
+    suspend fun camera(printer: PrinterStatus): CameraFeed? = hub.camera(printer.accountId, printer.deviceId)
 
     fun refreshAsync() { scope.launch { refresh() } }
 
