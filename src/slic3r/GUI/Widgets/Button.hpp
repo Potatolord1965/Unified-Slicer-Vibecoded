@@ -2,6 +2,7 @@
 #define slic3r_GUI_Button_hpp_
 
 #include "../wxExtensions.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "StaticBox.hpp"
 #include <wx/anybutton.h>
 #include <wx/gdicmn.h>
@@ -55,7 +56,7 @@ class Button : public StaticBox
     bool isCenter    = true;
     bool vertical    = false;
     bool m_show_indicator = false;
-    wxColour m_indicator_color = wxColour("#767676");
+    wxColour m_indicator_color = Slic3r::GUI::Accent::base();
 
     static const int buttonWidth  = 200;
     static const int buttonHeight = 50;

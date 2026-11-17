@@ -1,4 +1,5 @@
 #include "Plater.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "../Utils/NetworkAgent.hpp"
 #include "IPrinterAgent.hpp"
 #include "CalibUtils.hpp"
@@ -1488,7 +1489,7 @@ public:
 
         Bind(wxEVT_PAINT, [this](wxPaintEvent& evt) {
                 wxPaintDC dc(this);
-                dc.SetPen(StateColor::darkModeColorFor(wxColour("#767676"))); // ORCA match popup border color
+                dc.SetPen(StateColor::darkModeColorFor(Slic3r::GUI::Accent::base())); // ORCA match popup border color
                 dc.SetBrush(*wxTRANSPARENT_BRUSH);
                 dc.DrawRoundedRectangle(0, 0, GetSize().x, GetSize().y, 0);
             });
@@ -2527,7 +2528,7 @@ bool Sidebar::priv::sync_extruder_list(bool &only_external_material, bool is_man
 
 void Sidebar::priv::update_sync_status(const MachineObject *obj)
 {
-    StateColor not_synced_colour(std::pair<wxColour, int>(wxColour("#767676"), StateColor::Normal));
+    StateColor not_synced_colour(std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal));
     auto clear_all_sync_status = [this]() {
         panel_printer_preset->ShowBadge(false);
         panel_printer_bed->ShowBadge(false);
@@ -2911,8 +2912,8 @@ Sidebar::Sidebar(Plater *parent)
             wxColour bg_normal = "#FFFFFF";
             wxColour bg_focus  = "#ECECEC";
             wxColour bd_normal = "#DBDBDB";
-            wxColour bd_hover  = "#767676";
-            wxColour bd_focus  = "#767676";
+            wxColour bd_hover  = Slic3r::GUI::Accent::Base;
+            wxColour bd_focus  = Slic3r::GUI::Accent::Base;
         };
         PanelColors panel_color;
 
@@ -3197,8 +3198,8 @@ Sidebar::Sidebar(Plater *parent)
                 std::pair<wxColour, int>(wxColour("#F8F8F8"), StateColor::Hovered),
                 std::pair<wxColour, int>(wxColour("#F8F8F8"), StateColor::Normal));
         StateColor btn_sync_bd_col(
-                std::pair<wxColour, int>(wxColour("#767676"), StateColor::Pressed),
-                std::pair<wxColour, int>(wxColour("#767676"), StateColor::Hovered),
+                std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Pressed),
+                std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Hovered),
                 std::pair<wxColour, int>(wxColour("#EEEEEE"), StateColor::Normal));
         btn_sync->SetBackgroundColor(btn_sync_bg_col);
         btn_sync->SetBorderColor(btn_sync_bd_col);
@@ -3597,7 +3598,7 @@ Sidebar::Sidebar(Plater *parent)
             e.Skip();
             return;
         }
-        p->m_search_bar->SetBorderColor(wxColour("#767676"));
+        p->m_search_bar->SetBorderColor(Slic3r::GUI::Accent::base());
         wxPoint pos = this->p->m_search_bar->ClientToScreen(wxPoint(0, 0));
 #ifndef __WXGTK__
         pos.y += this->p->m_search_bar->GetRect().height;

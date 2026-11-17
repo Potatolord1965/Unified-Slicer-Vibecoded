@@ -195,7 +195,6 @@ static inline bool model_volume_needs_slicing(const ModelVolume &mv)
 }
 
 
-//using Rotation3D = Eige
 // Slice printable volumes, negative volumes and modifier volumes, sorted by ModelVolume::id().
 // Apply closing radius.
 // Apply positive XY compensation to ModelVolumeType::MODEL_PART and ModelVolumeType::PARAMETER_MODIFIER, not to ModelVolumeType::NEGATIVE_VOLUME.
@@ -209,12 +208,7 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     const std::vector<float>                                 &zs,
     const std::function<void()>                              &throw_on_cancel_callback)
 {
-
-
-    model_volumes_sort_by_id(model_volumes); 
-
-    
-    //Transform3d        trans(rot);
+    model_volumes_sort_by_id(model_volumes);
 
     std::vector<VolumeSlices> out;
     out.reserve(model_volumes.size());
@@ -224,61 +218,11 @@ static std::vector<VolumeSlices> slice_volumes_inner(
         slicing_ranges.reserve(layer_ranges.size());
 
     MeshSlicingParamsEx params_base;
-    //params_base.closing_radius = print_object_config.slice_closing_radius.value;
-    //params_base.extra_offset   = 0;
-    //// Apply a 3D rotation of 0.8 radians about the Y axis and multiply it
-    //// with the object's transform so slicing uses the rotated transform.
-    //{
-    //    const double angle = -0.8; // radians
-    //    Eigen::Matrix3d R;
-    //    R << std::cos(angle), 0.0,  std::sin(angle),
-    //         0.0,             1.0,  0.0,
-    //        -std::sin(angle), 0.0,  std::cos(angle);
-
-    //    Transform3d rot = Transform3d::Identity();
-    //    rot.linear() = R;
-
-    //    // Multiply rotation by object transform. This applies the Y-rotation
-    //    // before the object's existing transform.
-    //    params_base.trafo = rot * object_trafo;
-    //    //this does not work since the 
-    //}
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
-    // Apply a 3D rotation of 0.8 radians about the Y axis and multiply it
-    // with the object's transform so slicing uses the rotated transform.
-    // Rotate about the center of the plate (use the translation from object_trafo).
-    {
-        const double    angle = -0.8; // radians
-        Eigen::Matrix3d R;
-        R << std::cos(angle), 0.0, std::sin(angle), 0.0, 1.0, 0.0, -std::sin(angle), 0.0, std::cos(angle);
-
-        // Rotation about origin
-        Transform3d rot = Transform3d::Identity();
-        rot.linear()    = R;
-
-        // Compute plate center from the incoming transform and build
-        // T(center) * R * T(-center) to rotate about that point.
-        const Eigen::Vector3d center = object_trafo.translation();
-
-        Transform3d trans_to_origin   = Transform3d::Identity();
-        trans_to_origin.translation() = -center;
-
-        Transform3d trans_back   = Transform3d::Identity();
-        trans_back.translation() = center;
-
-        Transform3d existing_rot = object_trafo;
-        //rot.pretranslate(object_trafo.translation());
-       
-          
-
-        Transform3d rot_about_plate_center = rot;//        *existing_rot;
-        //params_base
-            
-
-            // Apply the rotation about plate center before the object's transform.
-        params_base.trafo = object_trafo;//        *this->trafo(); // rot * object_trafo;
-    }
+    params_base.trafo          = object_trafo;
+    //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
+    //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;
     switch (print_object_config.slicing_mode.value) {
     case SlicingMode::Regular:    params_base.mode = MeshSlicingParams::SlicingMode::Regular; break;

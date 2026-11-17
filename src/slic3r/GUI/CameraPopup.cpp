@@ -1,4 +1,5 @@
 #include "CameraPopup.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 #include "I18N.hpp"
 #include "Widgets/Label.hpp"
@@ -261,7 +262,7 @@ void CameraPopup::set_custom_cam_button_state(bool state)
 {
     m_custom_camera_enabled = state;
     m_custom_camera_input->Enable(!state);
-    const wxColour colour = state ? wxColour(170, 0, 0) : wxColour("#888888");
+    const wxColour colour = state ? wxColour(170, 0, 0) : Slic3r::GUI::Accent::hover();
     m_custom_camera_input_confirm->SetBackgroundColor(colour);
     m_custom_camera_input_confirm->SetBorderColor(colour);
     m_custom_camera_input_confirm->SetLabel(state ? _L("Disable") : _L("Enable"));

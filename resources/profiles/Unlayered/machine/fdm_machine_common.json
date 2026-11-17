@@ -4,7 +4,7 @@
 	"from": "system",
 	"instantiation": "false",
 	"printer_technology": "FFF",
-	"host_type": "unlayered",
+	"host_type": "duet",
 	"deretraction_speed": [
 		"40"
 	],

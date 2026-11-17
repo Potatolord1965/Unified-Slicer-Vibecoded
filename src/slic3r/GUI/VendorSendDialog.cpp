@@ -1,4 +1,5 @@
 #include "VendorSendDialog.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "ElegooPrintSendDialog.hpp"
 
 #include <algorithm>
@@ -149,7 +150,7 @@ Theme theme_for(SendVendor vendor, bool dark)
         t.text        = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
         t.subtext     = t.text;
         t.border      = t.text;
-        t.accent      = wxColour("#767676");
+        t.accent      = Slic3r::GUI::Accent::base();
         t.accent_text = *wxWHITE;
         t.error       = *wxRED;
         t.track_off   = wxColour("#BDBDBD");

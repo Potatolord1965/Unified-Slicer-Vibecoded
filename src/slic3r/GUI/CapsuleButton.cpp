@@ -1,4 +1,5 @@
 #include "GUI_App.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "CapsuleButton.hpp"
 #include "Widgets/StateColor.hpp"
 #include <wx/colour.h>
@@ -22,7 +23,7 @@ static const wxColour TextNormalColor = wxColour("#262E30");
 static const wxColour TextSelectColor = wxColour("#262E30"); // ORCA use same color on selected to improve readability
 
 static const wxColour BorderNormalColor   = wxColour("#CECECE");
-static const wxColour BorderSelectColor = wxColour("#767676");
+static const wxColour BorderSelectColor = Slic3r::GUI::Accent::base();
 
 CapsuleButton::CapsuleButton(wxWindow *parent, wxWindowID id, const wxString &label, bool selected) : wxPanel(parent, id)
 {

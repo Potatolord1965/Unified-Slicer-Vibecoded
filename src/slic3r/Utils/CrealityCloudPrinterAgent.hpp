@@ -75,7 +75,9 @@ private:
     void discovery_loop();
     void status_loop(std::string dev_id, uint64_t generation);
     void stop_discovery();
-    void stop_status();
+    // Ends the status loop. The UI thread does not wait for a loop that is inside a network call:
+    // it is retired and joined in the destructor (wait = true).
+    void stop_status(bool wait = false);
 
     void post(std::function<void()> fn);
     void dispatch_message(const std::string& dev_id, const std::string& payload);
@@ -102,6 +104,7 @@ private:
 
     std::atomic<uint64_t> m_status_generation{0};
     std::thread           m_status_thread;
+    std::vector<std::thread> m_retired_status_threads;
 };
 
 } // namespace Slic3r

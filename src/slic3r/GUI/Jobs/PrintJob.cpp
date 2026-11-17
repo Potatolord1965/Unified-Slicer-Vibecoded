@@ -37,7 +37,12 @@
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/Jobs/SendJob.hpp"
 #include <boost/filesystem.hpp>
+#include <boost/filesystem/directory.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/nowide/fstream.hpp>
+#include <cstdlib>
+#include <vector>
 #include <wx/utils.h>
 #ifdef _WIN32
 #include <wx/msw/registry.h>
@@ -83,8 +88,30 @@ static bool bambu_connect_installed()
 {
 #ifdef _WIN32
     return wxRegKey(wxRegKey::HKCR, "bambu-connect").Exists();
+#elif defined(__APPLE__)
+    const char* home = std::getenv("HOME");
+    return fs::exists("/Applications/Bambu Connect.app") ||
+           (home != nullptr && fs::exists(fs::path(home) / "Applications" / "Bambu Connect.app"));
 #else
-    return true; // No cheap check; the OS reports an unknown scheme itself.
+    // Linux: a desktop entry that handles the bambu-connect: scheme (the AppImage registers one).
+    std::vector<fs::path> dirs{"/usr/share/applications", "/usr/local/share/applications"};
+    if (const char* data_home = std::getenv("XDG_DATA_HOME"); data_home != nullptr && *data_home != '\0')
+        dirs.emplace_back(fs::path(data_home) / "applications");
+    else if (const char* home = std::getenv("HOME"); home != nullptr)
+        dirs.emplace_back(fs::path(home) / ".local" / "share" / "applications");
+    boost::system::error_code ec;
+    for (const fs::path& dir : dirs) {
+        for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+            if (it->path().extension() != ".desktop")
+                continue;
+            boost::nowide::ifstream in(it->path().string());
+            std::string line;
+            while (std::getline(in, line))
+                if (boost::starts_with(line, "MimeType=") && line.find("x-scheme-handler/bambu-connect") != std::string::npos)
+                    return true;
+        }
+    }
+    return false;
 #endif
 }
 

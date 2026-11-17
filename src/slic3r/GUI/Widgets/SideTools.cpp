@@ -1,4 +1,5 @@
 #include "SideTools.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "bambu_networking.hpp"
 #include <wx/colour.h>
 #include <wx/dcclient.h>
@@ -542,8 +543,8 @@ void SideTools::show_status(int status)
     else if ((status & (int)MonitorStatus::MONITOR_CONNECTING) != 0) {
         m_hyperlink->Hide();
         m_connection_info->SetLabel(_L("Connecting..."));
-        m_connection_info->SetBackgroundColor(0x767676);
-        m_connection_info->SetBorderColor(0x767676);
+        m_connection_info->SetBackgroundColor(Slic3r::GUI::Accent::BaseRGB);
+        m_connection_info->SetBorderColor(Slic3r::GUI::Accent::BaseRGB);
         m_connection_info->Show();
         m_more_button->Hide();
         m_side_error_panel->Hide();

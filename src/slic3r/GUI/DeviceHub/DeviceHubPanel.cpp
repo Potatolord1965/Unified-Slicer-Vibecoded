@@ -141,7 +141,7 @@ public:
         const wxColour bg    = StateColor::darkModeColorFor(wxColour("#FFFFFF"));
         const wxColour text  = StateColor::darkModeColorFor(wxColour("#262E30"));
         const wxColour muted = StateColor::darkModeColorFor(wxColour("#6B6B6B"));
-        const wxColour brand = accent.IsOk() ? accent : wxColour("#767676");
+        const wxColour brand = accent.IsOk() ? accent : Slic3r::GUI::Accent::base();
         SetCornerRadius(FromDIP(8));
         SetBorderWidth(1);
         SetBorderColor(StateColor(wxColour("#DBDBDB")));

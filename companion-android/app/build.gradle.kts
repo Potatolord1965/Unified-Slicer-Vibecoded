@@ -20,26 +20,29 @@ android {
         ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
     }
 
+    // Release signing key comes from the environment (CI secrets), never from the repository:
+    // COMPANION_KEYSTORE (path to the .jks/.keystore), COMPANION_KEYSTORE_PASSWORD,
+    // COMPANION_KEY_ALIAS, COMPANION_KEY_PASSWORD (defaults to the store password).
+    // Without them the build is signed with the local debug key, which cannot update an
+    // installed release build.
+    val releaseKeystore = System.getenv("COMPANION_KEYSTORE")?.takeIf { it.isNotBlank() }?.let(::file)
     signingConfigs {
-        // A fixed key so every build installs over the previous one. It is in the repository,
-        // so it only proves the APK came from this project's build, not from its owner.
-        create("sideload") {
-            storeFile = file("sideload.keystore")
-            storePassword = "unified-companion"
-            keyAlias = "companion"
-            keyPassword = "unified-companion"
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("COMPANION_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("COMPANION_KEY_ALIAS") ?: "companion"
+                keyPassword = System.getenv("COMPANION_KEY_PASSWORD") ?: System.getenv("COMPANION_KEYSTORE_PASSWORD")
+            }
         }
     }
 
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("sideload")
-        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("sideload")
+            signingConfig = if (releaseKeystore != null) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
 

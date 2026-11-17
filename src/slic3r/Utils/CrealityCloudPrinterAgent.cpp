@@ -55,7 +55,7 @@ CrealityCloudPrinterAgent::CrealityCloudPrinterAgent(std::string log_dir) : m_lo
 CrealityCloudPrinterAgent::~CrealityCloudPrinterAgent()
 {
     stop_discovery();
-    stop_status();
+    stop_status(true);
 }
 
 AgentInfo CrealityCloudPrinterAgent::get_agent_info_static()
@@ -266,11 +266,17 @@ int CrealityCloudPrinterAgent::disconnect_printer()
     return BAMBU_NETWORK_SUCCESS;
 }
 
-void CrealityCloudPrinterAgent::stop_status()
+void CrealityCloudPrinterAgent::stop_status(bool wait)
 {
     ++m_status_generation;
     if (m_status_thread.joinable() && m_status_thread.get_id() != std::this_thread::get_id())
-        m_status_thread.join();
+        m_retired_status_threads.push_back(std::move(m_status_thread));
+    if (wait) {
+        for (std::thread& t : m_retired_status_threads)
+            if (t.joinable() && t.get_id() != std::this_thread::get_id())
+                t.join();
+        m_retired_status_threads.clear();
+    }
 }
 
 void CrealityCloudPrinterAgent::status_loop(std::string dev_id, uint64_t generation)

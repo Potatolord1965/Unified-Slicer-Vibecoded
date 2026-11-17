@@ -83,6 +83,7 @@
 
 #include <boost/log/trivial.hpp>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_invoke.h>
@@ -2356,7 +2357,9 @@ bool PrintObject::invalidate_step(PrintObjectStep step)
         invalidated |= this->invalidate_steps({ posIroning, posContouring, posSimplifyInfill });
         invalidated |= m_print->invalidate_steps({ psSkirtBrim });
     } else if (step == posSlice) {
-		invalidated |= this->invalidate_steps({ posPerimeters, posPrepareInfill, posInfill, posIroning, posContouring, posSupportMaterial, posSimplifyPath, posSimplifyInfill });
+        // posSimplifySupportPath and posDetectOverhangsForLift depend on the slices too; invalidate_steps()
+        // does not propagate, so a GUI re-slice would otherwise keep stale support paths and overhangs.
+		invalidated |= this->invalidate_steps({ posPerimeters, posPrepareInfill, posInfill, posIroning, posContouring, posSupportMaterial, posSimplifyPath, posSimplifyInfill, posSimplifySupportPath, posDetectOverhangsForLift });
         invalidated |= m_print->invalidate_steps({ psSkirtBrim });
         m_slicing_params.valid = false;
     } else if (step == posSupportMaterial) {
@@ -5552,7 +5555,16 @@ void PrintObject::update_slicing_parameters()
         // UNLAYERED_MOD -- the object is sliced in its rotated frame, so its printable height is the
         // height of the ROTATED bounding box. Same matrix the slicer uses (layer_rotation_trafo()).
         const Transform3d tempTrafo = layer_rotation_trafo(this->print()->config(), this->config()); // BELT_MOD: belt tilt included
-        object_max_z = (float) this->model_object()->mesh().transformed_bounding_box(tempTrafo).size().z();
+        if (tempTrafo.linear().isIdentity(1e-12)) {
+            object_max_z = (float) this->model_object()->mesh().transformed_bounding_box(tempTrafo).size().z();
+        } else {
+            // The shrinkage compensation scales the object before it is rotated, and a rotation mixes
+            // the axes, so measure the compensated mesh. create_from_config() expects the height
+            // without the Z compensation and applies it itself.
+            const Vec3d shrinkage = this->print()->shrinkage_compensation();
+            object_max_z = (float) (this->model_object()->mesh().transformed_bounding_box(tempTrafo * Eigen::Scaling(shrinkage)).size().z() /
+                                    shrinkage.z());
+        }
         // BELT_MOD -- the frame is raised by the belt schedule offset, so the schedule must reach that
         // much further; the leading layers below the object's own material are empty and skipped.
         object_max_z += (float) m_belt_schedule_offset;

@@ -1,4 +1,5 @@
 #include "ElegooCloud.hpp"
+#include "SecretBox.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -8,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -327,6 +329,9 @@ constexpr const char* AGORA_MAIN = "libagora_rtm_sdk.so";
 constexpr const char* AGORA_AOSL = "libaosl.so";
 #endif
 
+// The SDK version whose interface layout AgoraRtm below is written against.
+constexpr const char* AGORA_SDK_VERSION = "2.2.8";
+
 struct AgoraFile
 {
     const char* name;
@@ -356,8 +361,9 @@ std::string sha256_hex(const std::string& data)
     return to_hex(std::string(reinterpret_cast<const char*>(digest), len));
 }
 
-// The app's own download folder holds only libraries it fetched; load them only while they
-// still match the pinned hashes (a copy from an older build, or one changed on disk, is fetched again).
+// The client below calls the SDK through fixed vtable slots of version 2.2.8, so any copy is
+// loaded only while it matches the pinned hashes: ElegooSlicer's own copy too, which another
+// ElegooSlicer release may have replaced. A copy that does not match is fetched again.
 bool downloaded_agora_ok(const fs::path& dir)
 {
     const std::vector<AgoraFile> files = agora_download_files();
@@ -375,17 +381,22 @@ fs::path find_agora_dir()
     boost::system::error_code ec;
     const fs::path            own = ElegooCloud::data_folder() / "agora";
     for (const fs::path& d : agora_candidate_dirs()) {
+        // Without pinned hashes (macOS) ElegooSlicer's copy is taken as found; load_agora() then
+        // checks its version.
+        const auto usable = [&](const fs::path& dir) {
+            return fs::exists(dir / AGORA_MAIN, ec) && (agora_download_files().empty() || downloaded_agora_ok(dir));
+        };
         if (d == own) {
             if (downloaded_agora_ok(d))
                 return d;
             continue;
         }
-        if (fs::exists(d / AGORA_MAIN, ec))
+        if (usable(d))
             return d;
         if (!fs::is_directory(d, ec))
             continue;
         for (fs::directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) // one level deep, e.g. ...\ElegooSlicer\bin
-            if (fs::exists(it->path() / AGORA_MAIN, ec))
+            if (usable(it->path()))
                 return it->path();
     }
     return {};
@@ -452,6 +463,14 @@ AgoraLib& load_agora(const ElegooProgressFn& progress)
 #endif
     if (lib.create == nullptr)
         throw ElegooCloudError("The Agora RTM library in " + dir.string() + " has no createAgoraRtmClient.");
+    // The client uses the 2.2.8 interface layout; another version would corrupt memory. Where the
+    // files are pinned by hash (find_agora_dir()) that already holds; elsewhere ask the library.
+    const std::string version = lib.version != nullptr && lib.version() != nullptr ? lib.version() : "";
+    if (agora_download_files().empty() && version.find(AGORA_SDK_VERSION) == std::string::npos) {
+        lib.create = nullptr;
+        throw ElegooCloudError("The Agora RTM library in " + dir.string() + " is version " + (version.empty() ? "unknown" : version) +
+                               ", not " + AGORA_SDK_VERSION + "; it was not used.");
+    }
     BOOST_LOG_TRIVIAL(info) << "ElegooCloud: Agora RTM " << (lib.version ? lib.version() : "?") << " loaded from " << dir.string();
     return lib;
 }
@@ -824,7 +843,9 @@ std::string ElegooCloud::login_user_agent(bool dark)
 {
     // The sign-in page issues slicer tokens only to a client that presents itself as ElegooSlicer;
     // with any other agent it hands back web-session tokens the device API rejects ("not logged in").
-    return std::string("ElegooSlicer/1.5.3.5 (") + (dark ? "dark" : "light") + ") Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+    // Our own product token goes last, so Elegoo can still tell this app apart.
+    return std::string("ElegooSlicer/1.5.3.5 (") + (dark ? "dark" : "light") + ") Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+           SLIC3R_APP_KEY + "/" + SLIC3R_VERSION;
 }
 
 bool ElegooCloud::is_elegoo_page(const std::string& url)
@@ -953,10 +974,7 @@ void ElegooCloud::load()
     try {
         if (!fs::exists(p))
             return;
-        std::string text = read_file(p);
-#ifdef _WIN32
-        text = dpapi(text, false);
-#endif
+        const std::string text = SecretBox::open(read_file(p), "elegoo");
         const json j = json::parse(text, nullptr, false);
         if (!j.is_object())
             return;
@@ -980,11 +998,7 @@ void ElegooCloud::save() const
                     {"user_id", m_account.user_id},         {"nickname", m_account.nickname},
                     {"email", m_account.email},             {"avatar", m_account.avatar}};
     try {
-        std::string text = j.dump();
-#ifdef _WIN32
-        text = dpapi(text, true);
-#endif
-        write_file(data_folder() / "account.dat", text);
+        write_file(data_folder() / "account.dat", SecretBox::seal(j.dump(), "elegoo"));
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(error) << "ElegooCloud: could not save the sign-in: " << e.what();
     }
@@ -1200,7 +1214,7 @@ static json agora_credential(ElegooCloud& cloud, const std::function<json(const 
 
 ElegooCanvasInfo ElegooCloud::canvas_info(const std::string& serial)
 {
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    const auto rtm_lock = live_lock();
     const json      reply = live_request(serial, M_CANVAS_STATUS, json::object());
     const json      ci    = reply.value("result", json::object()).value("canvas_info", json::object());
     ElegooCanvasInfo info;
@@ -1224,6 +1238,14 @@ ElegooCanvasInfo ElegooCloud::canvas_info(const std::string& serial)
         }
     }
     return info;
+}
+
+std::unique_lock<std::timed_mutex> ElegooCloud::live_lock()
+{
+    std::unique_lock<std::timed_mutex> lock(m_rtm_mutex, std::defer_lock);
+    if (!lock.try_lock_for(std::chrono::seconds(5)))
+        throw ElegooCloudError(_u8L("A print is being sent to the printer. Try again when it finishes."));
+    return lock;
 }
 
 json ElegooCloud::live_request(const std::string& serial, int method, const json& params, int timeout_s)
@@ -1260,7 +1282,7 @@ json ElegooCloud::live_request(const std::string& serial, int method, const json
 
 ElegooPrinterStatus ElegooCloud::live_status(const std::string& serial)
 {
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    const auto rtm_lock = live_lock();
     const json                  reply = live_request(serial, M_PRINTER_STATUS, json::object());
     const json                  r     = reply.value("result", json::object());
     auto obj = [&](const char* key) { return r.contains(key) && r[key].is_object() ? r[key] : json::object(); };
@@ -1320,7 +1342,7 @@ ElegooPrinterStatus ElegooCloud::live_status(const std::string& serial)
 
 void ElegooCloud::command(const std::string& serial, ElegooCommand cmd)
 {
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    const auto rtm_lock = live_lock();
     switch (cmd) {
     case ElegooCommand::Pause: live_request(serial, M_PAUSE_PRINT, json::object()); break;
     case ElegooCommand::Resume: live_request(serial, M_RESUME_PRINT, json::object()); break;
@@ -1330,7 +1352,7 @@ void ElegooCloud::command(const std::string& serial, ElegooCommand cmd)
 
 void ElegooCloud::close_live_session()
 {
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    std::lock_guard<std::timed_mutex> rtm_lock(m_rtm_mutex);
     m_live.reset();
 }
 
@@ -1342,7 +1364,7 @@ void ElegooCloud::set_raw_listener(RawMessageFn fn)
 
 void ElegooCloud::send_raw(const std::string& serial, const std::string& message)
 {
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    const auto rtm_lock = live_lock();
     if (!m_live || m_live->serial != serial || !m_live->channel)
         live_request(serial, M_PRINTER_STATUS, json::object()); // opens the session (and checks the printer answers)
     try {
@@ -1357,7 +1379,7 @@ void ElegooCloud::send_raw(const std::string& serial, const std::string& message
 
 json ElegooCloud::live_status_raw(const std::string& serial)
 {
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    const auto rtm_lock = live_lock();
     return live_request(serial, M_PRINTER_STATUS, json::object()).value("result", json::object());
 }
 
@@ -1477,7 +1499,7 @@ void ElegooCloud::send(const fs::path& file, const std::string& display_name, co
     const std::string url = upload_to_storage(server_name, file, to_base64(md5_raw), progress_in);
     BOOST_LOG_TRIVIAL(info) << "ElegooCloud: uploaded " << name << " (" << fs::file_size(file) << " bytes)";
 
-    std::lock_guard<std::mutex> rtm_lock(m_rtm_mutex);
+    std::lock_guard<std::timed_mutex> rtm_lock(m_rtm_mutex);
     m_live.reset(); // one messaging login per account: the send uses its own, with download progress
     const json     cred = agora_credential(*this, [this](const std::string& p) { return call("GET", p); });
     PrinterChannel ch(cred, serial, progress_in);

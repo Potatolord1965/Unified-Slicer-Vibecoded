@@ -1,4 +1,5 @@
 #include "BBLTopbar.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "wx/artprov.h"
 #include "wx/aui/framemanager.h"
 #include "wx/display.h"
@@ -183,19 +184,19 @@ void BBLTopbarArt::DrawButton(wxDC& dc, wxWindow* wnd, const wxAuiToolBarItem& i
     {
         if (item.GetState() & wxAUI_BUTTON_STATE_PRESSED)
         {
-            dc.SetPen(wxPen(StateColor::darkModeColorFor("#767676"))); // ORCA
-            dc.SetBrush(wxBrush(StateColor::darkModeColorFor("#767676"))); // ORCA
+            dc.SetPen(wxPen(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
+            dc.SetBrush(wxBrush(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
             dc.DrawRectangle(rect);
         }
         else if ((item.GetState() & wxAUI_BUTTON_STATE_HOVER) || item.IsSticky())
         {
-            dc.SetPen(wxPen(StateColor::darkModeColorFor("#767676"))); // ORCA
-            dc.SetBrush(wxBrush(StateColor::darkModeColorFor("#767676"))); // ORCA
+            dc.SetPen(wxPen(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
+            dc.SetBrush(wxBrush(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
 
             // draw an even lighter background for checked item hovers (since
             // the hover background is the same color as the check background)
             if (item.GetState() & wxAUI_BUTTON_STATE_CHECKED)
-                dc.SetBrush(wxBrush(StateColor::darkModeColorFor("#767676"))); // ORCA
+                dc.SetBrush(wxBrush(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
 
             dc.DrawRectangle(rect);
         }
@@ -203,8 +204,8 @@ void BBLTopbarArt::DrawButton(wxDC& dc, wxWindow* wnd, const wxAuiToolBarItem& i
         {
             // it's important to put this code in an else statement after the
             // hover, otherwise hovers won't draw properly for checked items
-            dc.SetPen(wxPen(StateColor::darkModeColorFor("#767676"))); // ORCA
-            dc.SetBrush(wxBrush(StateColor::darkModeColorFor("#767676"))); // ORCA
+            dc.SetPen(wxPen(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
+            dc.SetBrush(wxBrush(StateColor::darkModeColorFor(Slic3r::GUI::Accent::Base))); // ORCA
             dc.DrawRectangle(rect);
         }
     }
