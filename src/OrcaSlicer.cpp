@@ -4270,6 +4270,8 @@ int CLI::run(int argc, char **argv)
         //ORCA: an option no preset or project defines has just come in as its single default value, and a
         //      command line override may hold one value per filament.
         normalize_filament_values_to_variants(m_print_config);
+        // UNLAYERED_MOD -- axis_selection may only now have come in as its default.
+        derive_virtual_5axis(m_print_config);
     } else {
         boost::nowide::cerr << "invalid printer_technology " << std::endl;
         record_exit_reson(outfile_dir, CLI_INVALID_PRINTER_TECH, 0, cli_errors[CLI_INVALID_PRINTER_TECH], sliced_info);

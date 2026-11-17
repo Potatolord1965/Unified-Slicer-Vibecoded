@@ -11964,7 +11964,7 @@ double min_object_distance(const ConfigBase &cfg)
 // merges it) is sliced with axis_selection's default, so derive from that default too, or the
 // exported settings and the G-code's config block disagree. A config with neither key (CLI
 // overrides) is left alone: adding the key there would override the printer's own value.
-static void derive_virtual_5axis(DynamicPrintConfig &config)
+void derive_virtual_5axis(DynamicPrintConfig &config)
 {
     const bool has_axis = config.has("axis_selection");
     if (! has_axis && ! config.has("virtual_5axis"))
@@ -12055,8 +12055,10 @@ void DynamicPrintConfig::normalize_fdm(int used_filaments)
     // (UnlayeredSlicer.cpp), never handle_legacy_composite -- so a script still passing
     // --virtual_5axis=1 would otherwise be silently ignored and then reset to 0, emitting rotary
     // B/C words into what the operator expects to be 3-axis G-code.
-    if (this->has("virtual_5axis") && this->opt_bool("virtual_5axis"))
-        this->set_key_value("axis_selection", new ConfigOptionEnum<AxisSelection>(AxisSelection::Virtual));
+    // An explicit --virtual_5axis=0 with no printer type means B/C, as in handle_legacy_composite().
+    if (this->has("virtual_5axis") && (this->opt_bool("virtual_5axis") || ! this->has("axis_selection")))
+        this->set_key_value("axis_selection", new ConfigOptionEnum<AxisSelection>(
+            this->opt_bool("virtual_5axis") ? AxisSelection::Virtual : AxisSelection::BC));
     derive_virtual_5axis(*this);
 
     // UNLAYERED_MOD -- a CLI --nonplanar_hotend_cone_angle never reaches handle_legacy_composite().
