@@ -5905,7 +5905,7 @@ void PrintConfigDef::init_fff_params()
     // DERIVED from printer type == Virtual; see DynamicPrintConfig::normalize_fdm_1. It is NOT
     // shown in the UI any more (the "Printer type" dropdown replaced the checkbox) and must NOT be
     // deleted: shipped machine_start_gcode / machine_end_gcode templates reference {virtual_5axis}
-    // as a placeholder-parser variable (resources/profiles/Unlayered/machine/*.json), and the
+    // as a placeholder-parser variable (the Unlayered machine profiles), and the
     // parser throws "Variable does not exist" on an unknown identifier. A user carrying a
     // customised copy of such a template would get a hard slicing failure that no key-renaming
     // migration can reach, because nothing rewrites custom G-code TEXT.
@@ -11959,6 +11959,21 @@ double min_object_distance(const ConfigBase &cfg)
     return ret;
 }
 
+// UNLAYERED_MOD -- virtual_5axis is derived from the "Printer type" dropdown. A config that carries
+// virtual_5axis but not axis_selection (a printer preset written before the dropdown, as the CLI
+// merges it) is sliced with axis_selection's default, so derive from that default too, or the
+// exported settings and the G-code's config block disagree. A config with neither key (CLI
+// overrides) is left alone: adding the key there would override the printer's own value.
+static void derive_virtual_5axis(DynamicPrintConfig &config)
+{
+    const bool has_axis = config.has("axis_selection");
+    if (! has_axis && ! config.has("virtual_5axis"))
+        return;
+    const int axis = has_axis ? config.option("axis_selection")->getInt() :
+                                print_config_def.get("axis_selection")->default_value->getInt();
+    config.option<ConfigOptionBool>("virtual_5axis", true)->value = axis == int(AxisSelection::Virtual);
+}
+
 void DynamicPrintConfig::normalize_fdm(int used_filaments)
 {
     if (this->has("extruder")) {
@@ -12042,9 +12057,7 @@ void DynamicPrintConfig::normalize_fdm(int used_filaments)
     // B/C words into what the operator expects to be 3-axis G-code.
     if (this->has("virtual_5axis") && this->opt_bool("virtual_5axis"))
         this->set_key_value("axis_selection", new ConfigOptionEnum<AxisSelection>(AxisSelection::Virtual));
-    if (this->has("axis_selection"))
-        if (auto *v5 = this->option<ConfigOptionBool>("virtual_5axis", true); v5 != nullptr)
-            v5->value = this->option("axis_selection")->getInt() == int(AxisSelection::Virtual);
+    derive_virtual_5axis(*this);
 
     // UNLAYERED_MOD -- a CLI --nonplanar_hotend_cone_angle never reaches handle_legacy_composite().
     migrate_legacy_hotend_cone(*this);
@@ -12119,9 +12132,7 @@ void DynamicPrintConfig::normalize_fdm_1()
     // ConfigOptionBool does NOT override setInt() -- the base throws BadOptionTypeException
     // ("Calling ConfigOption::setInt on a non-int ConfigOption"), so this has to assign the
     // typed value. ConfigOptionEnum<T> does override getInt(), so reading the dropdown is fine.
-    if (this->has("axis_selection"))
-        if (auto *v5 = this->option<ConfigOptionBool>("virtual_5axis", true); v5 != nullptr)
-            v5->value = this->option("axis_selection")->getInt() == int(AxisSelection::Virtual);
+    derive_virtual_5axis(*this);
 
     // UNLAYERED_MOD -- a CLI --nonplanar_hotend_cone_angle never reaches handle_legacy_composite().
     migrate_legacy_hotend_cone(*this);
@@ -15488,6 +15499,9 @@ Polygon get_shared_poly(const std::vector<Pointfs>& extruder_polys)
             Polygon extruer_poly;
             extruer_poly.points = to_points(extruder_area);
             Polygons result_polygon = intersection(extruer_poly, result);
+            // Extruder areas that do not overlap share no bed; callers fall back to printable_area.
+            if (result_polygon.empty())
+                return {};
             result = result_polygon[0];
         }
     }
@@ -15513,7 +15527,7 @@ Points get_bed_shape(const DynamicPrintConfig &config, bool use_share)
             const std::vector<Pointfs>& extruder_areas = extruder_area_opt->values;
             bed_poly = get_shared_poly(extruder_areas);
         }
-        else
+        if (bed_poly.empty())
             bed_poly.points = to_points(make_counter_clockwise(bed_shape_opt->values));
     }
     else
@@ -15530,7 +15544,7 @@ Points get_bed_shape(const PrintConfig &cfg, bool use_share)
         if (extruder_areas.size() > 0) {
             bed_poly = get_shared_poly(extruder_areas);
         }
-        else
+        if (bed_poly.empty())
             bed_poly.points = to_points(make_counter_clockwise(cfg.printable_area.values));
     }
     else
