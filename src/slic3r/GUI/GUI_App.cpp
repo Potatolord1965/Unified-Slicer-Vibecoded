@@ -299,6 +299,7 @@ typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS2)(
 
 #endif
 #include <nlohmann/json.hpp>
+#include "UnifiedUpdater.hpp"
 #ifdef _WIN32
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <direct.h>
@@ -1147,7 +1148,9 @@ void GUI_App::post_init()
 
             // Presets in other slicers on this computer, offered on the first run and after updates.
             ask_import_other_slicers_once(*this);
-            this->check_new_version_sf();
+            // Unified Slicer's own releases; an available update shows in the top bar, not as a popup.
+            if (!app_config->get_stealth_mode())
+                UnifiedUpdater::instance().check();
             if (!cw_showed)
                 this->check_legacy_user_filament_presets(false);
             const auto cloud_provider = get_printer_cloud_provider();
@@ -2987,6 +2990,9 @@ int GUI_App::OnExit()
     } catch (...) {
         BOOST_LOG_TRIVIAL(error) << "Failed to clean up encrypt bbl network log file";
     }
+
+    // Starts the installer of a downloaded update; it waits for this process to end.
+    UnifiedUpdater::instance().install_pending();
 
     return wxApp::OnExit();
 }

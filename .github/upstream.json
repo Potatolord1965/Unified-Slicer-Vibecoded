@@ -1,0 +1,7 @@
+{
+  "_comment": "Upstream releases this project already contains. upstream_watch.yml compares these with each upstream's latest release; update an entry when a release is merged or ported.",
+  "orca":      { "repo": "OrcaSlicer/OrcaSlicer",         "version": "v2.5.0",       "mode": "merge" },
+  "elegoo":    { "repo": "ELEGOO-3D/ElegooSlicer",        "version": "v1.5.3",       "mode": "port" },
+  "unlayered": { "repo": "Unlayered3D/Unlayered-Slicer",  "version": "v0.1.10",      "mode": "port" },
+  "bambu":     { "repo": "bambulab/BambuStudio",          "version": "v02.08.04.61", "mode": "port" }
+}

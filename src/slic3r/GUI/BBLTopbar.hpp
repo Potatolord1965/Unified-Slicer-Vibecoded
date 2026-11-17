@@ -80,6 +80,7 @@ public:
     void SaveNormalRect();
 
     void ShowCalibrationButton(bool show = true);
+    void ShowUpdateButton(bool show);
 
 protected:
 #ifdef __WXMSW__
@@ -104,6 +105,8 @@ private:
     wxAuiToolBarItem* m_undo_item;
     wxAuiToolBarItem* m_redo_item;
     wxAuiToolBarItem* m_calib_item;
+    wxAuiToolBarItem* m_update_item{nullptr};
+    bool              m_update_shown{false};
     wxAuiToolBarItem* maximize_btn;
 
 

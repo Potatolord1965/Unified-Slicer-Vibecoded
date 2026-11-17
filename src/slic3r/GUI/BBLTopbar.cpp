@@ -24,6 +24,7 @@
 #include "wxExtensions.hpp"
 #include "Plater.hpp"
 #include "MainFrame.hpp"
+#include "UpdateScreen.hpp"
 #ifdef SLIC3R_CAD
 #include "CAD/DesignPanel.hpp"
 #endif
@@ -52,6 +53,7 @@ enum CUSTOM_ID
     ID_TITLE,
     ID_MODEL_STORE,
     ID_CALIB,
+    ID_UPDATE,
     ID_TOOL_BAR = 3200,
     ID_AMS_NOTEBOOK,
 };
@@ -283,6 +285,11 @@ void BBLTopbar::Init(wxFrame* parent)
     if(!window_btns_on_left)
         this->AddSpacer(5);
 
+    // Unified Slicer: shown only while an update is available, see ShowUpdateButton().
+    wxBitmap update_bitmap = create_scaled_bitmap("topbar_update", nullptr, TOPBAR_ICON_SIZE);
+    m_update_item = this->AddTool(ID_UPDATE, "", update_bitmap);
+    m_update_item->SetShortHelp(_L("An update is available"));
+
     /*wxBitmap logo_bitmap = create_scaled_bitmap("topbar_logo", nullptr, TOPBAR_ICON_SIZE);
     wxAuiToolBarItem* logo_item = this->AddTool(ID_LOGO, "", logo_bitmap);
     logo_item->SetHoverBitmap(logo_bitmap);
@@ -376,6 +383,7 @@ void BBLTopbar::Init(wxFrame* parent)
     }
 
     Realize();
+    ShowUpdateButton(false);
     // m_toolbar_h = this->GetSize().GetHeight();
     m_toolbar_h = FromDIP(30);
 
@@ -388,6 +396,7 @@ void BBLTopbar::Init(wxFrame* parent)
     this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, &BBLTopbar::OnFileToolItem, this, ID_TOP_FILE_MENU);
     this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, &BBLTopbar::OnDropdownToolItem, this, ID_TOP_DROPDOWN_MENU);
     this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, &BBLTopbar::OnCalibToolItem, this, ID_CALIB);
+    this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, [this](wxAuiToolBarEvent&) { UpdateScreen::show(m_frame); }, ID_UPDATE);
     this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, &BBLTopbar::OnIconize, this, wxID_ICONIZE_FRAME);
     this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, &BBLTopbar::OnFullScreen, this, wxID_MAXIMIZE_FRAME);
     this->Bind(wxEVT_AUITOOLBAR_TOOL_DROPDOWN, &BBLTopbar::OnCloseFrame, this, wxID_CLOSE_FRAME);
@@ -483,6 +492,16 @@ void BBLTopbar::ShowCalibrationButton(bool show)
     Refresh();
 }
 
+void BBLTopbar::ShowUpdateButton(bool show)
+{
+    m_update_shown = show;
+    m_update_item->GetSizerItem()->Show(show);
+    m_sizer->Layout();
+    if (!show)
+        m_update_item->GetSizerItem()->SetDimension({-1000, 0}, {0, 0});
+    Refresh();
+}
+
 void BBLTopbar::OnModelStoreClicked(wxAuiToolBarEvent& event)
 {
     //GUI::wxGetApp().load_url(wxString(wxGetApp().app_config->get_web_host_url() + MODEL_STORE_URL));
@@ -542,6 +561,8 @@ void BBLTopbar::Rescale() {
     /*item = this->FindTool(ID_LOGO);
     item->SetBitmap(create_scaled_bitmap("topbar_logo", nullptr, TOPBAR_ICON_SIZE));*/
 
+    m_update_item->SetBitmap(create_scaled_bitmap("topbar_update", this, TOPBAR_ICON_SIZE));
+
     item = this->FindTool(ID_TOP_FILE_MENU);
     item->SetBitmap(create_scaled_bitmap("topbar_file", this, TOPBAR_ICON_SIZE));
 
@@ -590,6 +611,7 @@ void BBLTopbar::Rescale() {
     item->SetBitmap(create_scaled_bitmap("topbar_close", this, TOPBAR_ICON_SIZE));
 
     Realize();
+    ShowUpdateButton(m_update_shown);
 }
 
 void BBLTopbar::OnIconize(wxAuiToolBarEvent& event)

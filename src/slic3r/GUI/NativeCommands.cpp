@@ -40,6 +40,7 @@
 #include <vector>
 #include <wx/string.h>
 #include <wx/utils.h>
+#include "UpdateScreen.hpp"
 
 class wxWindow;
 
@@ -616,7 +617,7 @@ std::vector<NativeCommand> build_command_catalog()
         return AppActionRunResult{AppActionRunResult::Level::Success};
     });
     add_with_icon("help_check_updates", L("Check for Updates"), L("Help"), "refresh", [](const std::string&) {
-        wxGetApp().check_new_version_sf(true, 1);
+        UpdateScreen::show(wxGetApp().mainframe);
         return AppActionRunResult{AppActionRunResult::Level::Success};
     });
     add_with_icon("help_about", L("About Unified Slicer"), L("Help"), "OrcaSlicer_gradient_circle", [](const std::string&) {

@@ -162,6 +162,8 @@
 #include <cassert>
 #include <wx/display.h>
 #include <wx/window.h>
+#include "UnifiedUpdater.hpp"
+#include "UpdateScreen.hpp"
 
 
 using json = nlohmann::json;
@@ -405,7 +407,10 @@ static wxIcon main_frame_icon(GUI_App::EAppMode app_mode)
 
 wxDEFINE_EVENT(EVT_SYNC_CLOUD_PRESET,     SimpleEvent);
 
-MainFrame::~MainFrame() = default;
+MainFrame::~MainFrame()
+{
+    UnifiedUpdater::instance().remove_listener(m_update_listener);
+}
 
 MainFrame::MainFrame() :
 DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_STYLE, "mainframe")
@@ -465,6 +470,13 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_
 
 #ifndef __APPLE__
     m_topbar         = new BBLTopbar(this);
+    // The top bar's update button follows the updater: shown while a newer release is available.
+    m_update_listener = UnifiedUpdater::instance().add_listener([this]() {
+        using State = UnifiedUpdater::State;
+        const State state = UnifiedUpdater::instance().state();
+        m_topbar->ShowUpdateButton(state == State::Available || state == State::Downloading || state == State::Ready ||
+                                   (state == State::Failed && !UnifiedUpdater::instance().release().version.empty()));
+    });
 #else
     auto panel_topbar = new wxPanel(this, wxID_ANY);
     panel_topbar->SetBackgroundColour(wxColour(38, 46, 48));
@@ -2897,7 +2909,7 @@ wxMenu* MainFrame::generate_help_menu()
     // Check New Version
     append_menu_item(helpMenu, wxID_ANY, _L("Check for Updates"), _L("Check for Updates"),
         [](wxCommandEvent&) {
-            wxGetApp().check_new_version_sf(true, 1);
+            UpdateScreen::show(wxGetApp().mainframe);
         }, "", nullptr, []() {
             return true;
         });

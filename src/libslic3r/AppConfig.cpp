@@ -500,6 +500,8 @@ void AppConfig::set_defaults()
         set_bool(SETTING_USE_ENCRYPTED_TOKEN_FILE, false);
 #endif
 
+    if (get("auto_install_updates").empty())
+        set_bool("auto_install_updates", true);
     if(get("check_stable_update_only").empty()) {
         set_bool("check_stable_update_only", false);
     }
