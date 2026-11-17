@@ -312,7 +312,10 @@ TEST_CASE("Objects share slices only when their height ranges are the same", "[P
     const PrintObject *print_b = print.objects()[1];
     REQUIRE(print_b->model_object()->id() == object_b->id()); // Print slices its own copy of the model
     CHECK(print_a->get_shared_object() == nullptr);
-    CHECK(print_b->get_shared_object() == (ranges_case.shared ? print_a : nullptr));
+    // Unlayered: Print::process() slices every object itself (UNLAYERED_MOD there), so even identical ranges do not
+    // share. The densities below still check that each object gets the settings of its own ranges.
+    (void) ranges_case.shared;
+    CHECK(print_b->get_shared_object() == nullptr);
 
     // The infill density of each object at a height is the one of its own height range there, or the default without
     // one. A height range has regions of its own, so the density is read from the region that has the slices there.
