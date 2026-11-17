@@ -97,6 +97,7 @@ public:
             // ordinary planar print; the chunk's tool axis on a multiplanar / 5-axis one, which tilts
             // the hotend model about its tip so it stays on the toolpath.
             Vec3f m_tool_axis{ 0.0f, 0.0f, 1.0f };
+            Vec3d m_nozzle_axis{ Vec3d::UnitZ() }; // ORCA nozzle direction, tilted for belt printers
             bool m_visible{ true };
             bool m_is_dark = false;
             // the G-code was exported with high_precision_gcode, so positions are shown with one more decimal
@@ -121,6 +122,8 @@ public:
             const Vec3f& get_tool_axis() const { return m_tool_axis; }
             // UNLAYERED_MOD
             void set_envelope(bool enabled, const HotendEnvelope& envelope);
+            void set_nozzle_axis(const Vec3d& axis) { m_nozzle_axis = axis.normalized(); } // ORCA
+            const Vec3d& get_nozzle_axis() const { return m_nozzle_axis; }
             void set_high_precision_gcode(bool high_precision) { m_high_precision_gcode = high_precision; }
 
 #if ENABLE_ACTUAL_SPEED_DEBUG
