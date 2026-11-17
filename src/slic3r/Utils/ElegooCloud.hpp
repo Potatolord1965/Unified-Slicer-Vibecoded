@@ -150,6 +150,8 @@ public:
     // All throw ElegooCloudError. Blocking: call them off the UI thread.
     std::vector<ElegooCloudPrinter> printers();
     int                             printer_state(const std::string& serial);
+    // Whether the printer is connected to the Elegoo cloud now: 1 online, 0 offline, -1 unknown.
+    int                             printer_online(const std::string& serial);
     ElegooCanvasInfo                canvas_info(const std::string& serial);
     // Over the account's messaging session, which stays open between calls for the same printer.
     ElegooPrinterStatus             live_status(const std::string& serial);

@@ -272,6 +272,11 @@ constexpr int32_t  RTM_MESSAGE_TYPE_STRING = 1;
 constexpr int32_t  RTM_LOG_LEVEL_WARN      = 2;
 constexpr int32_t  RTM_ERROR_RECEIVER_OFFLINE = -11033; // publish to a user who is not logged in to RTM
 
+std::string printer_offline_text()
+{
+    return _u8L("The printer is not connected to Elegoo cloud. Check that it is switched on, awake and on Wi-Fi, then try again.");
+}
+
 // IRtmClient vtable (its destructor is declared last, so the order is the same on MSVC and Itanium).
 constexpr int VT_RELEASE = 0, VT_LOGIN = 1, VT_LOGOUT = 2, VT_PUBLISH = 8, VT_SUBSCRIBE = 9;
 // IRtmEventHandler: virtual destructor first (1 slot on MSVC, 2 on Itanium), then 47 methods.
@@ -576,7 +581,7 @@ private:
         const int err = m_results[request_id];
         m_results.erase(request_id);
         if (err == RTM_ERROR_RECEIVER_OFFLINE)
-            throw ElegooCloudError(_u8L("The printer is not connected to Elegoo cloud. Check that it is switched on, awake and on Wi-Fi, then try again."),
+            throw ElegooCloudError(printer_offline_text(),
                                    err);
         if (err != 0) {
             const char* reason = m_lib.reason ? m_lib.reason(err) : nullptr;
@@ -1131,6 +1136,23 @@ std::vector<ElegooCloudPrinter> ElegooCloud::printers()
     return out;
 }
 
+int ElegooCloud::printer_online(const std::string& serial)
+{
+    // The report data keeps the last state the printer sent, even after it went offline.
+    try {
+        const json body = {{"deviceCode", serial}};
+        const json j    = call("POST", "/api/v1/device-management-server/device-register/online-status", &body);
+        const json data = j.value("data", json::object());
+        if (data.is_object() && data.contains("onlineStatus")) {
+            const json& v = data["onlineStatus"];
+            return json_int(&v) == 1 ? 1 : 0;
+        }
+    } catch (const ElegooCloudError& e) {
+        BOOST_LOG_TRIVIAL(info) << "ElegooCloud: online status of " << mask(serial) << " unavailable: " << e.what();
+    }
+    return -1;
+}
+
 int ElegooCloud::printer_state(const std::string& serial)
 {
     try {
@@ -1437,6 +1459,8 @@ void ElegooCloud::send(const fs::path& file, const std::string& display_name, co
 
     check(0, _u8L("Checking sign-in…"));
     ensure_token();
+    if (printer_online(serial) == 0)
+        throw ElegooCloudError(printer_offline_text());
     if (opt.start_print && printer_state(serial) == 2)
         throw ElegooCloudError(_u8L("The printer reports it is printing. Wait for it to finish, or send without printing."));
 

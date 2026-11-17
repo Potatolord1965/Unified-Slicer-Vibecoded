@@ -684,15 +684,17 @@ void ElegooCloudProvider::refresh_printers(PrintersCallback done)
         wxString                  error;
         try {
             for (const ElegooCloudPrinter& p : ElegooCloud::instance().printers()) {
-                // The device list carries no status; the report data does (1 idle, 2 printing).
-                const int    state = ElegooCloud::instance().printer_state(p.serial);
+                // The device list carries no status. The report data does (1 idle, 2 printing), but it
+                // keeps the last state after the printer goes offline, so ask for the online state first.
+                const int    online = ElegooCloud::instance().printer_online(p.serial);
+                const int    state  = online == 0 ? -1 : ElegooCloud::instance().printer_state(p.serial);
                 CloudPrinter cp;
                 cp.provider_id = provider;
                 cp.id          = p.serial;
                 cp.name        = wxString::FromUTF8(p.name.empty() ? p.serial : p.name);
                 cp.model       = wxString::FromUTF8(p.model);
-                cp.online      = state >= 0;
-                cp.status      = state == 2 ? _L("Printing") : state == 1 ? _L("Idle") : _L("Unknown");
+                cp.online      = online != 0 && state >= 0;
+                cp.status      = online == 0 ? _L("Offline") : state == 2 ? _L("Printing") : state == 1 ? _L("Idle") : _L("Unknown");
                 out.push_back(std::move(cp));
             }
             std::lock_guard<std::mutex> lock(s_elegoo_cloud_mutex);
