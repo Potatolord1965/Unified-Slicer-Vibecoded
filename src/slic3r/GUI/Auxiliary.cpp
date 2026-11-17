@@ -1,4 +1,5 @@
 #include "Tab.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Auxiliary.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/Model.hpp"
@@ -886,9 +887,9 @@ void AuxiliaryPanel::init_bitmap()
 void AuxiliaryPanel::init_tabpanel()
 {
     StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(206, 206, 206), StateColor::Disabled),
-                            std::pair<wxColour, int>(wxColour("#5C5C5C"), StateColor::Pressed),
-                            std::pair<wxColour, int>(wxColour("#888888"), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(118, 118, 118), StateColor::Normal));
+                            std::pair<wxColour, int>(Slic3r::GUI::Accent::pressed(), StateColor::Pressed),
+                            std::pair<wxColour, int>(Slic3r::GUI::Accent::hover(), StateColor::Hovered),
+                            std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal));
     auto back_btn = new Button(this, _L("Return"), "assemble_return", wxBORDER_NONE | wxBU_LEFT | wxBU_EXACTFIT);
     back_btn->SetSize(wxSize(FromDIP(220), FromDIP(18)));
     back_btn->SetBackgroundColor(btn_bg_green);

@@ -1,4 +1,5 @@
 #include "BBLStatusBarPrint.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 #include <wx/event.h>
 #include <wx/panel.h>
@@ -80,7 +81,7 @@ BBLStatusBarPrint::BBLStatusBarPrint(wxWindow *parent, int id)
 
     m_sizer_status_text = new wxBoxSizer(wxHORIZONTAL);
     m_link_show_error = new Label(top_panel, _L("Check the reason"));
-    m_link_show_error->SetForegroundColour(wxColour("#767676"));
+    m_link_show_error->SetForegroundColour(Slic3r::GUI::Accent::base());
     m_link_show_error->SetFont(::Label::Head_13);
     m_link_show_error->Bind(wxEVT_ENTER_WINDOW, [this](auto &e) { this->m_self->SetCursor(wxCURSOR_HAND); });
     m_link_show_error->Bind(wxEVT_LEAVE_WINDOW, [this](auto &e) { this->m_self->SetCursor(wxCURSOR_ARROW); });

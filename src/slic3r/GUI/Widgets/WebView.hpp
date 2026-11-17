@@ -27,6 +27,10 @@ public:
 
     static bool RunScript(wxWebView * webView, wxString const & msg);
 
+    // Opens a link from a web page in the system browser or mail app. Only http, https and mailto
+    // links are passed on; any other scheme would start whatever app the OS registered for it.
+    static bool OpenExternalLink(const wxString &url);
+
     // Marks "wx" as registered so CreateWebView's deferred add skips the duplicate.
     static void MarkScriptMessageHandlerAdded(wxWebView * webView);
 

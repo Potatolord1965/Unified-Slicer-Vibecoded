@@ -1,5 +1,6 @@
 #include "BuiltinCloudProviders.hpp"
 #include "DeviceHubPanel.hpp"
+#include "slic3r/GUI/BusyWork.hpp"
 
 #include <functional>
 #include <utility>
@@ -492,12 +493,7 @@ bool write_markforged_settings(const nlohmann::json& settings) { return Eiger::w
 
 MarkforgedCloudProvider::MarkforgedCloudProvider() : PrinterAgentCloudProvider("markforged", "Markforged", 40, "markforged_eiger", {}, wxColour("#8B8F95")) {}
 
-bool MarkforgedCloudProvider::is_logged_in() const
-{
-    const nlohmann::json settings = read_markforged_settings();
-    return settings.is_object() && !settings.value("access_key", std::string()).empty() &&
-           !settings.value("secret_key", std::string()).empty();
-}
+bool MarkforgedCloudProvider::is_logged_in() const { return Eiger::has_keys(); }
 
 void MarkforgedCloudProvider::login(wxWindow* parent)
 {
@@ -531,8 +527,7 @@ void MarkforgedCloudProvider::login(wxWindow* parent)
 
     // Check the keys before keeping them, so a typo shows up here and not as an empty printer list.
     try {
-        wxBusyCursor busy;
-        Eiger({access_key, secret_key}).devices();
+        run_busy(parent, display_name(), _L("Checking the API keys…"), [&] { Eiger({access_key, secret_key}).devices(); });
     } catch (const std::exception& e) {
         MessageDialog(parent, wxString::FromUTF8(e.what()), display_name(), wxOK | wxICON_ERROR).ShowModal();
         return;

@@ -1,5 +1,6 @@
 #include "ElegooLoginDialog.hpp"
 
+#include <exception>
 #include <string>
 
 #include <boost/log/trivial.hpp>
@@ -61,7 +62,7 @@ ElegooLoginDialog::ElegooLoginDialog(wxWindow* parent)
     if (m_browser != nullptr) {
         m_browser->SetUserAgent(wxString::FromUTF8(ElegooCloud::login_user_agent(wxGetApp().dark_mode())));
         Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &ElegooLoginDialog::on_script_message, this, m_browser->GetId());
-        Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) { wxLaunchDefaultBrowser(e.GetURL()); }, m_browser->GetId());
+        Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) { WebView::OpenExternalLink(e.GetURL()); }, m_browser->GetId());
         sizer->Add(m_browser, 1, wxEXPAND);
     } else {
         sizer->Add(new wxStaticText(this, wxID_ANY, _L("The web view needed for signing in is not available.")), 1, wxALL, FromDIP(20));
@@ -107,6 +108,17 @@ void ElegooLoginDialog::respond(const wxString& id, const wxString& method, bool
 
 // The page talks the same small JSON request/response protocol ElegooSlicer's pages use.
 void ElegooLoginDialog::on_script_message(wxWebViewEvent& evt)
+{
+    // A page can send any JSON; a field of the wrong type makes json::value() throw, which must
+    // not reach the event loop and end the app.
+    try {
+        handle_script_message(evt);
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(warning) << "Elegoo sign-in: malformed page message ignored: " << e.what();
+    }
+}
+
+void ElegooLoginDialog::handle_script_message(wxWebViewEvent& evt)
 {
     const json msg = json::parse(evt.GetString().ToUTF8().data(), nullptr, false);
     if (!msg.is_object())

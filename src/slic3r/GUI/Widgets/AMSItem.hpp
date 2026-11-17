@@ -2,6 +2,7 @@
 #define slic3r_GUI_AMSITEM_hpp_
 
 #include "../wxExtensions.hpp"
+#include "slic3r/GUI/AccentColor.hpp" // IWYU pragma: keep (used by colour macros)
 #include "StaticBox.hpp"
 #include "StepCtrl.hpp"
 #include "Button.hpp"
@@ -33,7 +34,7 @@
 
 #include "slic3r/GUI/DeviceCore/DevFilaSwitch.h" // Orca: DevFilaSwitch::SwitchPos for inlet-aware AMS placement
 
-#define AMS_CONTROL_BRAND_COLOUR wxColour(118, 118, 118)
+#define AMS_CONTROL_BRAND_COLOUR Slic3r::GUI::Accent::base()
 #define AMS_CONTROL_GRAY700 wxColour(107, 107, 107)
 #define AMS_CONTROL_GRAY800 wxColour(50, 58, 61)
 #define AMS_CONTROL_GRAY500 wxColour(172, 172, 172)

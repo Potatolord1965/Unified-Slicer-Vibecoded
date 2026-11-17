@@ -1,4 +1,5 @@
 #include "ImageSwitchButton.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 #include "StaticBox.hpp"
 #include "../wxExtensions.hpp"
@@ -39,7 +40,7 @@ EVT_PAINT(FanSwitchButton::paintEvent)
 
 END_EVENT_TABLE()
 
-static const wxColour DEFAULT_HOVER_COL = wxColour(118, 118, 118);
+static const wxColour DEFAULT_HOVER_COL = Slic3r::GUI::Accent::base();
 static const wxColour DEFAULT_PRESS_COL = wxColour(238, 238, 238);
 
 ImageSwitchButton::ImageSwitchButton(wxWindow *parent, ScalableBitmap &img_on, ScalableBitmap &img_off, long style)

@@ -2009,6 +2009,13 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
         add_warning(std::move(w));
     };
 
+    // Orca 2.5 tilted supports to a manually tilted build plate; this engine's support follows
+    // the belt tilt only, so a manual tilt on a flat-bed printer is ignored. Say so rather than
+    // print supports that differ silently from a stock Orca slice.
+    if (!m_config.belt_printer.value && (std::abs(m_config.build_plate_tilt_x.value) > EPSILON || std::abs(m_config.build_plate_tilt_y.value) > EPSILON))
+        warn(L("This printer profile sets a build plate tilt. Supports are generated for a level plate; the tilt is used only on belt printers."),
+             "build_plate_tilt_x");
+
     std::vector<unsigned int> extruders = this->extruders();
     unsigned int nozzles = m_config.nozzle_diameter.size();
 
@@ -2524,6 +2531,23 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
     // Checks that the print does not exceed the max print height
     for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx) {
         const PrintObject &print_object = *m_objects[print_object_idx];
+        // BELT_MOD: the sliced Z of a belt printer runs along the sheared belt length and is not
+        // comparable to printable_height (the gantry clearance). Like stock Orca, bound the model's own
+        // height instead, which does not carry the Z shrinkage compensation yet.
+        if (m_config.belt_printer.value) {
+            const double raw_z                    = print_object.model_object()->max_z();
+            const double shrinkage_compensation_z = this->shrinkage_compensation().z();
+            const double printable_height         = this->config().printable_height;
+            if (raw_z > 0. && raw_z * shrinkage_compensation_z > printable_height + EPSILON)
+                return StringObjectException{
+                    raw_z <= printable_height + EPSILON ?
+                    Slic3r::format(_u8L("While the object %1% itself fits the build volume, it exceeds the maximum build volume height because of material shrinkage compensation."), print_object.model_object()->name) :
+                    Slic3r::format(_u8L("The object %1% exceeds the maximum build volume height."), print_object.model_object()->name),
+                    print_object.model_object(),
+                    ""
+                };
+            continue;
+        }
         //FIXME It is quite expensive to generate object layers just to get the print height!
         if (auto layers = generate_object_layers(print_object.slicing_parameters(), layer_height_profile(print_object_idx),
                                                  print_object.config().precise_z_height.value);

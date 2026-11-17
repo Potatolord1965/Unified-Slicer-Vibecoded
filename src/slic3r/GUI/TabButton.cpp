@@ -1,4 +1,5 @@
 #include "TabButton.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Widgets/Label.hpp"
 
 #include "slic3r/GUI/Widgets/StaticBox.hpp"
@@ -26,7 +27,7 @@ EVT_PAINT(TabButton::paintEvent)
 
 END_EVENT_TABLE()
 
-static wxColour BORDER_HOVER_COL = wxColour(118, 118, 118);
+static wxColour BORDER_HOVER_COL = Slic3r::GUI::Accent::base();
 
 const static wxColour TAB_BUTTON_BG    = wxColour("#FEFFFF");
 const static wxColour TAB_BUTTON_SEL   = wxColour("#D8D8D8"); // ORCA

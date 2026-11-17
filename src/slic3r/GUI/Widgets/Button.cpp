@@ -1,4 +1,5 @@
 #include "Button.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 
 #include "slic3r/GUI/Widgets/StaticBox.hpp"
@@ -43,8 +44,8 @@ END_EVENT_TABLE()
 Button::Button() : paddingSize(10, 8)
 {
     background_color = StateColor(std::make_pair(0xF0F0F1, (int) StateColor::Disabled),
-                                  std::make_pair(0x888888, (int) StateColor::Hovered | StateColor::Checked),
-                                  std::make_pair(0x767676, (int) StateColor::Checked),
+                                  std::make_pair(Slic3r::GUI::Accent::HoverRGB, (int) StateColor::Hovered | StateColor::Checked),
+                                  std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Checked),
                                   std::make_pair(*wxLIGHT_GREY, (int) StateColor::Hovered),
                                   std::make_pair(*wxWHITE, (int) StateColor::Normal));
     text_color = StateColor(std::make_pair(*wxLIGHT_GREY, (int) StateColor::Disabled), std::make_pair(*wxBLACK, (int) StateColor::Normal));
@@ -192,9 +193,9 @@ void Button::SetVertical(bool vertical)
 
 //                           Background                                             Foreground                       Border on focus
 // Button Colors             0-Disabled 1-Pressed  2-Hover    3-Normal   4-Enabled  5-Disabled 6-Normal   7-Hover    8-Dark     9-Light
-wxString btn_regular[10]  = {"#DFDFDF", "#DFDFDF", "#D4D4D4", "#DFDFDF", "#DFDFDF", "#6B6A6A", "#262E30", "#262E30", "#767676", "#767676"};
-wxString btn_confirm[10]  = {"#DFDFDF", "#767676", "#888888", "#767676", "#767676", "#6B6A6A", "#FEFEFE", "#FEFEFE", "#A8A8A8", "#5C5C5C"};
-wxString btn_alert[10]    = {"#DFDFDF", "#DFDFDF", "#E14747", "#DFDFDF", "#DFDFDF", "#6B6A6A", "#262E30", "#FFFFFD", "#767676", "#767676"};
+wxString btn_regular[10]  = {"#DFDFDF", "#DFDFDF", "#D4D4D4", "#DFDFDF", "#DFDFDF", "#6B6A6A", "#262E30", "#262E30", Slic3r::GUI::Accent::Base, Slic3r::GUI::Accent::Base};
+wxString btn_confirm[10]  = {"#DFDFDF", Slic3r::GUI::Accent::Base, Slic3r::GUI::Accent::Hover, Slic3r::GUI::Accent::Base, Slic3r::GUI::Accent::Base, "#6B6A6A", "#FEFEFE", "#FEFEFE", "#A8A8A8", Slic3r::GUI::Accent::Pressed};
+wxString btn_alert[10]    = {"#DFDFDF", "#DFDFDF", "#E14747", "#DFDFDF", "#DFDFDF", "#6B6A6A", "#262E30", "#FFFFFD", Slic3r::GUI::Accent::Base, Slic3r::GUI::Accent::Base};
 wxString btn_disabled[10] = {"#DFDFDF", "#DFDFDF", "#DFDFDF", "#DFDFDF", "#DFDFDF", "#6B6A6A", "#6B6A6A", "#262E30", "#DFDFDF", "#DFDFDF"};
 
 void Button::SetStyle(const ButtonStyle style, const ButtonType type)

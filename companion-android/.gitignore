@@ -4,3 +4,7 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+
+# Signing keys are kept in CI secrets, never in the repository.
+*.keystore
+*.jks

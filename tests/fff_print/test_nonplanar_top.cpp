@@ -24,6 +24,9 @@
 #include <map>
 #include <set>
 #include <tuple>
+#ifndef _WIN32
+#include <stdlib.h>
+#endif
 
 using namespace Slic3r;
 
@@ -1627,6 +1630,17 @@ TEST_CASE("Nonplanar layers: hold back holds the safe part of a wall joined to a
         m.push_back(block_at(-8., 3.1, 0., 0.6, 4.1, 2, 4, flat14));   // bulkhead, y -1 .. 7.2 (into the port rim)
         return m;
     };
+    // Holding part of a piece is the experimental partial hold, off unless NPTOP_PARTIAL_HOLD is set.
+    struct PartialHold
+    {
+#ifdef _WIN32
+        PartialHold() { _putenv_s("NPTOP_PARTIAL_HOLD", "1"); }
+        ~PartialHold() { _putenv_s("NPTOP_PARTIAL_HOLD", ""); }
+#else
+        PartialHold() { setenv("NPTOP_PARTIAL_HOLD", "1", 1); }
+        ~PartialHold() { unsetenv("NPTOP_PARTIAL_HOLD"); }
+#endif
+    } partial_hold;
     DynamicPrintConfig held_cfg = base_config(true);
     held_cfg.set_deserialize_strict({ { "nonplanar_hold_back", 1 } });
     Sliced held, plain;

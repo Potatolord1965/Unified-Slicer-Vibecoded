@@ -1,4 +1,5 @@
 #include "MixedFilamentDialog.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -115,7 +116,7 @@ private:
         }
 
         dc.SetFont(GetFont());
-        dc.SetTextForeground(m_hovered ? StateColor::darkModeColorFor(wxColour("#767676"))
+        dc.SetTextForeground(m_hovered ? StateColor::darkModeColorFor(Slic3r::GUI::Accent::base())
                                        : StateColor::darkModeColorFor(wxColour("#262E30")));
         wxSize ts = dc.GetTextExtent(m_text);
         int x = (sz.GetWidth()  - ts.GetWidth())  / 2;

@@ -386,6 +386,7 @@ private:
     };
 
     std::string _spiral_travel_to_z(double z, const Vec2d &ij_offset, const std::string &comment);
+    std::string _travel_lifted_planar(Vec3d dest_point, double travel_speed, const std::string &comment);
     // Feedrate (mm/s) for an XY or XYZ travel: the wave-overhang override when one is set, otherwise the
     // active extruder's travel_speed, or initial_layer_travel_speed on the first layer when
     // first_layer_aware (a few emitters historically ignore the first-layer speed; they pass false).

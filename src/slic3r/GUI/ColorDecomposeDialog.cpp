@@ -1,4 +1,5 @@
 #include "ColorDecomposeDialog.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -40,7 +41,7 @@
 namespace Slic3r {
 namespace GUI {
 
-static const wxColour COLOR_BRAND("#767676");
+static const wxColour COLOR_BRAND(Slic3r::GUI::Accent::Base);
 static const wxColour COLOR_BORDER_NORMAL("#EEEEEE");
 static const wxColour COLOR_BG_CARD("#F8F8F8");
 static const wxColour COLOR_LABEL_GREY("#ACACAC");

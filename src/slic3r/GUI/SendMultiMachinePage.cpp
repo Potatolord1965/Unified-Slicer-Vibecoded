@@ -1,4 +1,5 @@
 #include "SendMultiMachinePage.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "TaskManager.hpp"
 #include "I18N.hpp"
 
@@ -280,7 +281,7 @@ void SendDeviceItem::doRender(wxDC& dc)
 
     //device state
     if (state_printable <= 2) {
-        dc.SetTextForeground(wxColour(118, 118, 118));
+        dc.SetTextForeground(Slic3r::GUI::Accent::base());
     }
     else {
         dc.SetTextForeground(wxColour(208, 27, 27));
@@ -305,7 +306,7 @@ void SendDeviceItem::doRender(wxDC& dc)
     }
 
     if (m_hover) {
-        dc.SetPen(wxPen(wxColour(118, 118, 118)));
+        dc.SetPen(wxPen(Slic3r::GUI::Accent::base()));
         dc.SetBrush(*wxTRANSPARENT_BRUSH);
         dc.DrawRoundedRectangle(0, 0, size.x, size.y, 3);
     }

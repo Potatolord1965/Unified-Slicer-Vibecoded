@@ -498,6 +498,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/ElegooPrintSendDialog.cpp
     GUI/ElegooPrintSendDialog.hpp
     GUI/VendorSendBackends.cpp
+    GUI/BusyWork.hpp
+    GUI/PollWorker.hpp
     GUI/VendorSendDialog.cpp
     GUI/VendorSendDialog.hpp
     GUI/Printer/PrinterFileSystem.cpp
@@ -784,6 +786,8 @@ set(SLIC3R_GUI_SOURCES
     Utils/CrealityPrintAgent.cpp
     Utils/CrealityPrintAgent.hpp
     Utils/CrealityCloud.cpp
+    Utils/SecretBox.cpp
+    Utils/SecretBox.hpp
     Utils/CrealityCloud.hpp
     Utils/CrealityCloudPrinterAgent.cpp
     Utils/CrealityCloudPrinterAgent.hpp

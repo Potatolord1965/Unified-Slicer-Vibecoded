@@ -26,6 +26,7 @@
 #include <wx/webviewarchivehandler.h>
 #include <wx/webviewfshandler.h>
 #include <wx/weakref.h>
+#include <wx/utils.h>
 #if wxUSE_WEBVIEW_EDGE
 #include <wx/msw/webview_edge.h>
 #elif defined(__WXMAC__)
@@ -486,6 +487,14 @@ void WebView::LoadUrl(wxWebView * webView, wxString const &url)
     if (!url2.empty()) { url2 = wxURI(url2).BuildURI(); }
     BOOST_LOG_TRIVIAL(trace) << __FUNCTION__ << RedactUrl(url2).ToUTF8();
     webView->LoadURL(url2);
+}
+
+bool WebView::OpenExternalLink(const wxString &url)
+{
+    const wxString lower = url.Lower();
+    if (!lower.StartsWith("http://") && !lower.StartsWith("https://") && !lower.StartsWith("mailto:"))
+        return false;
+    return wxLaunchDefaultBrowser(url);
 }
 
 bool WebView::RunScript(wxWebView *webView, wxString const &javascript)
