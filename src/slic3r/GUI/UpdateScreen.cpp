@@ -18,7 +18,7 @@
 #include "wx/event.h"
 #include "wx/gdicmn.h"
 #include "wx/toplevel.h"
-#include "wx/stringimpl.h"
+#include <wx/string.h>
 
 namespace Slic3r { namespace GUI {
 
