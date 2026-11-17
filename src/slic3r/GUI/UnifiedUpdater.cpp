@@ -1,29 +1,33 @@
 #include "UnifiedUpdater.hpp"
 
 #include <algorithm>
+#include <boost/optional/optional.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
 #include <cctype>
+#include <cstddef>
 #include <exception>
-#include <fstream>
-#include <iterator>
+#include <ios>
+#include <functional>
+#include <openssl/ossl_typ.h> // IWYU pragma: keep
+#include <mutex>
 #include <sstream>
+#include <string>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/algorithm/string/trim.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/nowide/fstream.hpp>
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
 #include <wx/app.h>
-#include <wx/stdpaths.h>
-#include <wx/utils.h>
 
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Semver.hpp"
 #include "libslic3r/Utils.hpp"
-#include "libslic3r/libslic3r_version.h"
+#include "libslic3r_version.h"
 #include "slic3r/Utils/Http.hpp"
 #include "GUI.hpp"
 #include "GUI_App.hpp"
@@ -33,6 +37,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#include <wx/stdpaths.h>
 #endif
 
 namespace fs = boost::filesystem;

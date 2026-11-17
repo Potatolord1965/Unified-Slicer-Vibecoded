@@ -1,18 +1,24 @@
 #include "UpdateScreen.hpp"
 
-#include <wx/checkbox.h>
-#include <wx/gauge.h>
+#include <string>
+#include <wx/checkbox.h> // IWYU pragma: keep
+#include <wx/gauge.h> // IWYU pragma: keep
 #include <wx/sizer.h>
-#include <wx/stattext.h>
+#include <wx/stattext.h> // IWYU pragma: keep
 #include <wx/textctrl.h>
 #include <wx/utils.h>
 
-#include "libslic3r/libslic3r_version.h"
+#include "GUI_Utils.hpp"
+#include "libslic3r_version.h"
 #include "GUI_App.hpp"
 #include "I18N.hpp"
 #include "UnifiedUpdater.hpp"
 #include "Widgets/Button.hpp"
 #include "Widgets/Label.hpp"
+#include "wx/event.h"
+#include "wx/gdicmn.h"
+#include "wx/toplevel.h"
+#include "wx/stringimpl.h"
 
 namespace Slic3r { namespace GUI {
 
