@@ -1,4 +1,5 @@
 #include "BitmapCache.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 #include "libslic3r/Utils.hpp"
 #include "../Utils/MacDarkMode.hpp"
@@ -360,8 +361,8 @@ wxBitmap* BitmapCache::load_svg(const std::string &bitmap_name, unsigned target_
     } else {
         replaces["#949494"] = "#7C8282"; // ORCA replace icon line color for light theme
         replaces["\"#009688\""] = "\"#767676\""; // Unified Slicer: icon accent teal -> neutral
-        replaces["#009688"] = "#767676";
-        replaces["#26A69A"] = "#888888";
+        replaces["#009688"] = Slic3r::GUI::Accent::Base;
+        replaces["#26A69A"] = Slic3r::GUI::Accent::Hover;
     }
 
     if (strstr(bitmap_name.c_str(), "toggle_on") != NULL && dark_mode) // ORCA only replace color of toggle button

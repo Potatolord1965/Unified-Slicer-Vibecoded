@@ -1,4 +1,5 @@
 #include "wx/clipbrd.h"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "wx/display.h"
 
 #include "I18N.hpp"
@@ -2998,7 +2999,7 @@ void ObjectTablePanel::load_data()
     m_object_grid->SetDefaultCellBackgroundColour(StateColor::darkModeColorFor(*wxWHITE));
     m_object_grid->SetSelectionBackground(StateColor::darkModeColorFor(wxColour("#D8D8D8"))); // its not fully working since background of control's covers cell 
 
-    m_object_grid->SetCellHighlightColour(StateColor::darkModeColorFor(wxColour("#767676")));
+    m_object_grid->SetCellHighlightColour(StateColor::darkModeColorFor(Slic3r::GUI::Accent::base()));
     m_object_grid->SetCellHighlightPenWidth(FromDIP(1));
     m_object_grid->SetCellHighlightROPenWidth(FromDIP(1)); // Highlight for read-only cells
 

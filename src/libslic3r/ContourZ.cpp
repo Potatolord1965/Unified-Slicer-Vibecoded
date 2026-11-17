@@ -10,6 +10,7 @@
 #include "libslic3r.h"
 #include <algorithm>
 #include <Eigen/Core>
+#include <boost/log/trivial.hpp>
 #include <cfloat>
 #include <cmath>
 #include <initializer_list>

@@ -485,7 +485,7 @@ public:
         m_bg_color = StateColor::darkModeColorFor(wxColour("#FFFFFF"));
         m_fg_color = StateColor::darkModeColorFor(wxColour("#6B6A6A"));
         m_progress_bg_color = StateColor::darkModeColorFor(wxColour("#DFDFDF"));
-        m_progress_fg_color = StateColor::darkModeColorFor(wxColour("#767676"));
+        m_progress_fg_color = StateColor::darkModeColorFor(Slic3r::GUI::Accent::base());
         m_progress_h = FromDIP(6);
         bool dark_mode = m_fg_color != wxColour("#6B6A6A");
         wxSize sz  = m_window->GetClientSize();
@@ -746,7 +746,7 @@ wxString file_wildcards(FileType file_type, const std::string &custom_extension)
     return GUI::format_wxstr("%s (%s)|%s", translated_title, title, mask);
 }
 
-static std::string libslic3r_translate_callback(const char *s) { return wxGetTranslation(wxString(s, wxConvUTF8)).utf8_str().data(); }
+static std::string libslic3r_translate_callback(const char *s) { return Slic3r::GUI::I18N::translate_utf8(s); }
 
 #ifdef WIN32
 static GUID GUID_DEVINTERFACE_HID = { 0x4D1E55B2, 0xF16F, 0x11CF, { 0x88, 0xCB, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30 } };
@@ -5196,7 +5196,6 @@ void GUI_App::auto_install_network_plugin()
     const std::string configured = app_config->get_network_plugin_version();
     if (configured.empty() || !is_supported_network_version(configured))
         app_config->set_network_plugin_version(get_latest_network_version());
-    app_config->set_bool("installed_networking", true);
     app_config->save();
     BOOST_LOG_TRIVIAL(info) << "Installing the Bambu network plug-in " << app_config->get_network_plugin_version() << " in the background";
     std::thread([this]() {
@@ -5210,6 +5209,9 @@ void GUI_App::auto_install_network_plugin()
                 return;
             }
             m_networking_need_update = false;
+            // Marked installed only now, so a failed download is retried on the next start.
+            app_config->set_bool("installed_networking", true);
+            app_config->save();
             if (!hot_reload_network_plugin())
                 BOOST_LOG_TRIVIAL(warning) << "Bambu network plug-in installed; it loads on the next start";
         });

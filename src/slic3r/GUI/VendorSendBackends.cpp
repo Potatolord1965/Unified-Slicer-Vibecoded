@@ -1,6 +1,8 @@
 // Built-in backends for the per-vendor send dialogs (see VendorSendDialog.hpp).
 
 #include <algorithm>
+#include <charconv>
+#include <system_error>
 #include <cstring>
 #include <exception>
 #include <mutex>
@@ -13,6 +15,7 @@
 #include <boost/log/trivial.hpp>
 #include <nlohmann/json.hpp>
 
+#include "BusyWork.hpp"
 #include "ElegooLoginDialog.hpp"
 #include "I18N.hpp"
 #include "VendorSendDialog.hpp"
@@ -43,6 +46,13 @@
 namespace Slic3r { namespace GUI {
 
 namespace {
+
+bool parse_int(const std::string& text, int& out)
+{
+    const char* end = text.data() + text.size();
+    const auto  res = std::from_chars(text.data(), end, out);
+    return res.ec == std::errc() && res.ptr == end;
+}
 
 PrintHostType host_type_of(const DynamicPrintConfig& cfg)
 {
@@ -192,10 +202,12 @@ public:
             o.set_auto_refill = req.options.count("auto_refill") > 0;
             o.auto_refill     = opt("auto_refill", "0") == "1";
             for (const auto& [filament, slot] : req.slot_map) {
+                // "<tray>:<slot>", from the dialog's own list; anything else is skipped, not thrown.
+                int        tray = 0, index = 0;
                 const auto colon = slot.find(':');
-                if (colon == std::string::npos)
+                if (colon == std::string::npos || !parse_int(slot.substr(0, colon), tray) || !parse_int(slot.substr(colon + 1), index))
                     continue;
-                o.slot_map.push_back({filament, std::stoi(slot.substr(0, colon)), std::stoi(slot.substr(colon + 1))});
+                o.slot_map.push_back({filament, tray, index});
             }
             job.printhost = std::make_unique<ElegooCloudHost>();
             ElegooCloudHost::to_extended_info(req.printer_id.substr(6), o, job.upload_data.extended_info);
@@ -337,13 +349,16 @@ bool ask_creality_login(wxWindow* parent)
             e.Skip();
             return;
         }
-        wxBusyCursor wait;
         CC::Session  session;
         std::string  err;
         const std::string user = account->GetValue().Trim().Trim(false).ToUTF8().data();
+        const std::string pass = password->GetValue().ToUTF8().data();
+        const CC::Region  where = region->GetSelection() == 1 ? CC::Region::China : CC::Region::Global;
+        int               code  = -1;
         // An account with an @ is an e-mail (type 2); otherwise a phone number with country code (type 1).
-        const int code = CC::Client::login(region->GetSelection() == 1 ? CC::Region::China : CC::Region::Global,
-                                           user.find('@') != std::string::npos ? 2 : 1, user, password->GetValue().ToUTF8().data(), session, err);
+        run_busy(&dlg, _L("Sign in to Creality Cloud"), _L("Signing in…"), [&] {
+            code = CC::Client::login(where, user.find('@') != std::string::npos ? 2 : 1, user, pass, session, err);
+        });
         if (code != CC::CODE_OK || !session.valid()) {
             error->SetLabel(err.empty() ? _L("Sign-in failed. Check the account and password.") : wxString::FromUTF8(err));
             dlg.Layout();
@@ -415,15 +430,19 @@ public:
         std::vector<SendPrinter> out;
         std::string              cloud_error;
         if (m_has_lan) {
-            CrealityPrint host(&m_config);
-            m_info = host.read_printer_info();
+            CrealityPrint             host(&m_config);
+            const CrealityPrinterInfo info = host.read_printer_info();
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_info = info;
+            }
             SendPrinter sp;
             sp.id     = LAN_ID;
-            sp.name   = info_name();
+            sp.name   = info.model_name.empty() ? _L("Creality printer") : wxString::FromUTF8(info.model_name);
             sp.detail = wxString::FromUTF8(host.get_host());
             sp.group  = _L("LAN");
-            sp.online = m_info.reachable;
-            sp.status = m_info.reachable ? _L("Idle") : _L("Offline");
+            sp.online = info.reachable;
+            sp.status = info.reachable ? _L("Idle") : _L("Offline");
             out.push_back(std::move(sp));
         }
         const CrealityCloud::Session session = CrealityCloud::SessionStore::get();
@@ -587,10 +606,6 @@ private:
         std::string type, color;
         int         box, material;
     };
-    wxString info_name() const
-    {
-        return m_info.model_name.empty() ? _L("Creality printer") : wxString::FromUTF8(m_info.model_name);
-    }
     bool find(const std::string& id, CrealityCloud::Device& out)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -693,7 +708,9 @@ public:
             out.push_back(std::move(p));
         }
         try {
-            m_presets = api.settings_presets();
+            auto presets = api.settings_presets();
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_presets = std::move(presets);
         } catch (const std::exception& e) {
             BOOST_LOG_TRIVIAL(warning) << "Eiger: settings presets unavailable: " << e.what();
         }
@@ -707,8 +724,11 @@ public:
         preset.label          = _L("Settings preset");
         preset.kind           = SendOption::Kind::Choice;
         preset.choices.push_back({"", _L("Organization default")});
-        for (const auto& [id, title] : m_presets)
-            preset.choices.push_back({id, wxString::FromUTF8(title)});
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            for (const auto& [id, title] : m_presets)
+                preset.choices.push_back({id, wxString::FromUTF8(title)});
+        }
         preset.default_choice = Eiger::saved_settings_preset();
         preset.tooltip        = _L("Material, layer height and fiber settings come from this Eiger preset.");
         SendOption action;
@@ -768,6 +788,7 @@ public:
 
 private:
     EigerKeys                                        m_keys;
+    mutable std::mutex                               m_mutex; // printers() runs off the UI thread
     std::vector<std::pair<std::string, std::string>> m_presets;
 };
 } // namespace

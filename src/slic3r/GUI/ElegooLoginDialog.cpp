@@ -62,7 +62,7 @@ ElegooLoginDialog::ElegooLoginDialog(wxWindow* parent)
     if (m_browser != nullptr) {
         m_browser->SetUserAgent(wxString::FromUTF8(ElegooCloud::login_user_agent(wxGetApp().dark_mode())));
         Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &ElegooLoginDialog::on_script_message, this, m_browser->GetId());
-        Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) { wxLaunchDefaultBrowser(e.GetURL()); }, m_browser->GetId());
+        Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) { WebView::OpenExternalLink(e.GetURL()); }, m_browser->GetId());
         sizer->Add(m_browser, 1, wxEXPAND);
     } else {
         sizer->Add(new wxStaticText(this, wxID_ANY, _L("The web view needed for signing in is not available.")), 1, wxALL, FromDIP(20));

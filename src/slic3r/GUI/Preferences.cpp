@@ -1,4 +1,5 @@
 #include "Preferences.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "CloudProvider.hpp"
 #include "OptionsGroup.hpp"
 #include "GUI_App.hpp"
@@ -234,7 +235,7 @@ private:
         dc.SetBackground(wxBrush(GetParent() ? GetParent()->GetBackgroundColour() : *wxWHITE));
         dc.Clear();
  
-        wxColour textCol = StateColor::darkModeColorFor(m_hovered ? "#888888" : "#363636");
+        wxColour textCol = StateColor::darkModeColorFor(m_hovered ? Slic3r::GUI::Accent::Hover : "#363636");
  
         dc.SetTextForeground(textCol);
         dc.SetFont(m_font);

@@ -2,6 +2,7 @@
 #define slic3r_Auxiliary_hpp_
 
 #include "Tabbook.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include <array>
 #include "slic3r/GUI/Widgets/TextInput.hpp"
 #include <boost/filesystem/path.hpp>
@@ -60,7 +61,7 @@
 #define AUFILE_GREY500 wxColour(158, 158, 158)
 #define AUFILE_GREY300 wxColour(238, 238, 238)
 #define AUFILE_GREY200 wxColour(248, 248, 248)
-#define AUFILE_BRAND wxColour(118, 118, 118)
+#define AUFILE_BRAND Slic3r::GUI::Accent::base()
 #define AUFILE_BRAND_TRANSPARENT wxColour("#ECECEC") // ORCA color with %10 opacity
 //#define AUFILE_PICTURES_SIZE wxSize(FromDIP(300), FromDIP(300))
 //#define AUFILE_PICTURES_PANEL_SIZE wxSize(FromDIP(300), FromDIP(340))

@@ -2009,6 +2009,13 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
         add_warning(std::move(w));
     };
 
+    // Orca 2.5 tilted supports to a manually tilted build plate; this engine's support follows
+    // the belt tilt only, so a manual tilt on a flat-bed printer is ignored. Say so rather than
+    // print supports that differ silently from a stock Orca slice.
+    if (!m_config.belt_printer.value && (std::abs(m_config.build_plate_tilt_x.value) > EPSILON || std::abs(m_config.build_plate_tilt_y.value) > EPSILON))
+        warn(L("This printer profile sets a build plate tilt. Supports are generated for a level plate; the tilt is used only on belt printers."),
+             "build_plate_tilt_x");
+
     std::vector<unsigned int> extruders = this->extruders();
     unsigned int nozzles = m_config.nozzle_diameter.size();
 

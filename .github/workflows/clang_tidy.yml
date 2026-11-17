@@ -9,7 +9,7 @@ name: clang-tidy
 # paths filter leaves a required check pending forever. A PR with no C++
 # changes finishes after the first step.
 #
-# approve_pr_checks.yml approves this workflow's runs for first-time
+# (Upstream approves first-time
 # contributors and finds it by its file name.
 on:
   pull_request:

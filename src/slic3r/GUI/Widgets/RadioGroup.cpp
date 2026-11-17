@@ -1,4 +1,5 @@
 #include "RadioGroup.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 #include "StateColor.hpp"
 #include <vector>
@@ -57,7 +58,7 @@ void RadioGroup::Create(
 
     m_focus_color = StateColor(
         std::pair(bg                 , (int)StateColor::NotFocused),
-        std::pair(wxColour("#767676"), (int)StateColor::Focused)
+        std::pair(Slic3r::GUI::Accent::base(), (int)StateColor::Focused)
     );
 
     auto bmp_size   = m_on.GetBmpSize();

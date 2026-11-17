@@ -83,6 +83,7 @@
 
 #include <boost/log/trivial.hpp>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_invoke.h>

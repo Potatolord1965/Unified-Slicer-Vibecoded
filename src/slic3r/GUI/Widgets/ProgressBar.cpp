@@ -1,4 +1,5 @@
 #include "ProgressBar.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include <wx/dc.h>
 #include <wx/dcclient.h>
 #include <wx/dcgraph.h>
@@ -47,8 +48,8 @@ void ProgressBar::create(wxWindow *parent, wxWindowID id, const wxPoint &pos,  w
 
      auto m_progress_bk = new StaticBox(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
      m_progress_bk->SetBackgroundColour(wxColour(238, 130, 238));
-     StateColor btn_bg_green(std::pair<wxColour, int>(wxColour("#5C5C5C"), StateColor::Pressed), std::pair<wxColour, int>(wxColour("#888888"), StateColor::Hovered),
-                             std::pair<wxColour, int>(wxColour(118, 118, 118), StateColor::Normal));
+     StateColor btn_bg_green(std::pair<wxColour, int>(Slic3r::GUI::Accent::pressed(), StateColor::Pressed), std::pair<wxColour, int>(Slic3r::GUI::Accent::hover(), StateColor::Hovered),
+                             std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal));
 
      wxBoxSizer *m_sizer_progress= new wxBoxSizer(wxHORIZONTAL);
 

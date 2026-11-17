@@ -1,4 +1,5 @@
 #include "ComboBox.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 
 #include "slic3r/GUI/Widgets/TextInput.hpp"
@@ -65,7 +66,7 @@ ComboBox::ComboBox(wxWindow *parent,
         GetTextCtrl()->Hide();
         TextInput::SetFont(Label::Body_14);
         TextInput::SetBorderColor(StateColor(std::make_pair(0xDBDBDB, (int) StateColor::Disabled),
-            std::make_pair(0x767676, (int) StateColor::Hovered),
+            std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Hovered),
             std::make_pair(0xDBDBDB, (int) StateColor::Normal)));
         TextInput::SetBackgroundColor(StateColor(std::make_pair(0xF0F0F1, (int) StateColor::Disabled),
             std::make_pair(0xECECEC, (int) StateColor::Focused), // ORCA updated background color for focused item

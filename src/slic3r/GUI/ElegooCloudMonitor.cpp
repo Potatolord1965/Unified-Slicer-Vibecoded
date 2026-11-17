@@ -31,6 +31,7 @@
 #include "DeviceHub/DeviceHubPanel.hpp"
 #include "GUI_App.hpp"
 #include "I18N.hpp"
+#include "PollWorker.hpp"
 #include "Widgets/Button.hpp"
 #include "Widgets/Label.hpp"
 #include "Widgets/WebView.hpp"
@@ -161,7 +162,7 @@ private:
         const bool        with_canvas = m_polls++ % CANVAS_EVERY == 0;
         auto              alive       = m_alive;
         const std::string serial      = m_serial;
-        std::thread([this, alive, serial, with_canvas]() {
+        m_poller.post([this, alive, serial, with_canvas]() {
             ElegooPrinterStatus status;
             ElegooCanvasInfo    canvas;
             std::string         error;
@@ -197,7 +198,7 @@ private:
                     show(canvas);
                 Layout();
             });
-        }).detach();
+        });
     }
 
     void show(const ElegooPrinterStatus& s)
@@ -271,6 +272,7 @@ private:
     std::string            m_serial;
     std::shared_ptr<bool>  m_alive{std::make_shared<bool>(true)};
     std::atomic<bool>      m_busy{false};
+    PollWorker             m_poller;
     bool                   m_sending{false};
     bool                   m_has_status{false};
     unsigned               m_polls{0};
@@ -362,7 +364,7 @@ public:
         m_browser   = WebView::CreateWebView(this, wxEmptyString);
         if (m_browser != nullptr) {
             Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &ElegooCloudPageView::on_script_message, this, m_browser->GetId());
-            Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) { wxLaunchDefaultBrowser(e.GetURL()); }, m_browser->GetId());
+            Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) { WebView::OpenExternalLink(e.GetURL()); }, m_browser->GetId());
             Bind(wxEVT_WEBVIEW_LOADED, &ElegooCloudPageView::on_loaded, this, m_browser->GetId());
             m_browser->EnableAccessToDevTools(wxGetApp().app_config->get_bool("developer_mode"));
             // ElegooSlicer's user script: links open in the system browser, and a reconnect button.
@@ -481,7 +483,7 @@ private:
             return;
         auto              alive  = m_alive;
         const std::string serial = m_serial;
-        std::thread([this, alive, serial]() {
+        m_poller.post([this, alive, serial]() {
             json        status;
             std::string error;
             try {
@@ -502,7 +504,7 @@ private:
                 m_last_status = status;
                 send_status();
             });
-        }).detach();
+        });
     }
 
     void on_printer_message(const std::string& message)
@@ -556,6 +558,10 @@ private:
 
     void handle_script_message(wxWebViewEvent& evt)
     {
+        // Only the app's own page (a local file) may relay printer messages or delete tasks; it
+        // can link out, and a site it navigates to must not reach these methods.
+        if (m_browser == nullptr || !m_browser->GetCurrentURL().Lower().StartsWith("file:"))
+            return;
         const json msg = json::parse(evt.GetString().ToUTF8().data(), nullptr, false);
         if (!msg.is_object() || msg.value("type", "request") != "request")
             return;
@@ -706,6 +712,7 @@ private:
     bool                  m_loaded{false};
     std::shared_ptr<bool> m_alive{std::make_shared<bool>(true)};
     std::atomic<bool>     m_polling{false};
+    PollWorker            m_poller;
     int                   m_connect_status{-1}; // -1 until the first status read
     std::vector<json>     m_pending_connect;    // getConnectStatus requests waiting for it
     unsigned              m_event_id{0};

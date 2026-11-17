@@ -34,6 +34,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <math.h>
+#include <Eigen/Core>
 #include <memory>
 
 #ifdef __APPLE__

@@ -1,4 +1,5 @@
 #include "CrealityCloud.hpp"
+#include "SecretBox.hpp"
 
 #include "Http.hpp"
 #include "slic3r/GUI/DeviceCore/DevStorage.h"
@@ -185,32 +186,10 @@ float number(const json& values, const char* key, float fallback = 0.f)
     return fallback;
 }
 
-// The saved session holds the account token. On Windows it is encrypted for the current user
-// (DPAPI, like the Elegoo sign-in); elsewhere the file is readable by its owner only.
+// The saved session holds the account token, encrypted for the current user (SecretBox: DPAPI on
+// Windows, the keychain elsewhere); the file is also readable by its owner only.
 // Throws on failure.
-#ifdef _WIN32
-std::string dpapi(const std::string& in, bool protect)
-{
-    DATA_BLOB src{static_cast<DWORD>(in.size()), reinterpret_cast<BYTE*>(const_cast<char*>(in.data()))};
-    DATA_BLOB dst{0, nullptr};
-    const BOOL ok = protect ? CryptProtectData(&src, L"Creality Cloud", nullptr, nullptr, nullptr, 0, &dst) :
-                              CryptUnprotectData(&src, nullptr, nullptr, nullptr, nullptr, 0, &dst);
-    if (!ok)
-        throw std::runtime_error("DPAPI error " + std::to_string(GetLastError()));
-    std::string out(reinterpret_cast<const char*>(dst.pbData), dst.cbData);
-    LocalFree(dst.pbData);
-    return out;
-}
-#endif
-
-std::string protect_session(const std::string& text)
-{
-#ifdef _WIN32
-    return dpapi(text, true);
-#else
-    return text;
-#endif
-}
+std::string protect_session(const std::string& text) { return SecretBox::seal(text, "creality"); }
 
 // Sessions saved by earlier builds are plain JSON; they are read as they are and protected on the next save.
 std::string unprotect_session(const std::string& data)
@@ -218,11 +197,7 @@ std::string unprotect_session(const std::string& data)
     const size_t first = data.find_first_not_of(" \t\r\n");
     if (first == std::string::npos || data[first] == '{')
         return data;
-#ifdef _WIN32
-    return dpapi(data, false);
-#else
-    return data;
-#endif
+    return SecretBox::open(data, "creality");
 }
 
 std::mutex  s_session_mutex;
@@ -934,11 +909,19 @@ int Client::put_oss_object(const OssCredentials& creds,
     const std::string signature = oss_signature(creds.access_key_secret, "PUT", "", content_type, date, oss_headers,
                                                 "/" + creds.bucket + "/" + key);
 
+    // The name is the user's file name: quotes, backslashes and control characters (CR/LF would
+    // split the header) become '_' in the quoted form; the exact name goes in filename* (RFC 6266).
+    std::string quoted = download_name;
+    for (char& c : quoted)
+        if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20 || c == 0x7f)
+            c = '_';
+    const std::string disposition = "attachment; filename=\"" + quoted + "\"; filename*=UTF-8''" + Http::url_encode(download_name);
+
     Http http = Http::put("https://" + host + "/" + url_encode_path(key));
     http.header("Content-Type", content_type)
         .header("Date", date)
         .header("Authorization", "OSS " + creds.access_key_id + ":" + signature)
-        .header("Content-Disposition", "attachment;filename=\"" + download_name + "\"")
+        .header("Content-Disposition", disposition)
         .header("Expect", "");
     for (const auto& [name, value] : oss_headers)
         http.header(name, value);

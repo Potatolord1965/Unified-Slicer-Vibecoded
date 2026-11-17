@@ -10621,9 +10621,9 @@ std::string GCode::_extrude(const ExtrusionPath &path, const std::string &path_d
         gcode += this->travel_to(first_point, path.role(), "move to first " + description + " point", z, trafo);
 
         // Orca: ensure Z matches planned layer height
-        // UNLAYERED_MOD: ordinary prints only; with non-planar printing the travel above already
-        // targets the path's own (contoured or tilted) Z.
-        if (!m_config.enable_nonplanar.value && !slope_need_z_travel && (_last_pos_undefined || m_need_change_layer_lift_z)) {
+        // UNLAYERED_MOD: ordinary prints only; with non-planar printing, or on a belt printer (sliced
+        // in a tilted frame), the travel above already targets the path's own Z.
+        if (!m_config.enable_nonplanar.value && !m_config.belt_printer.value && !slope_need_z_travel && (_last_pos_undefined || m_need_change_layer_lift_z)) {
             const std::string z_sync_comment = _last_pos_undefined ?
                 "ensure Z matches planned layer height" : ""; // no comment for normal layer-Z lift
             gcode += this->writer().travel_to_z(m_nominal_z, z_sync_comment, true);
@@ -10642,9 +10642,9 @@ std::string GCode::_extrude(const ExtrusionPath &path, const std::string &path_d
         }
     }
 
-    // UNLAYERED_MOD: Orca's contouring Z set/reset, for ordinary prints only (non-planar paths carry
-    // their own Z in the travel above).
-    if (!m_config.enable_nonplanar.value) {
+    // UNLAYERED_MOD: Orca's contouring Z set/reset, for ordinary prints only (non-planar and belt
+    // paths carry their own Z in the travel above).
+    if (!m_config.enable_nonplanar.value && !m_config.belt_printer.value) {
         if (path.z_contoured && !path.polyline.lines().empty()) {
             double current_z = m_writer.get_position().z();
             double first_z = unscale_(path.polyline.lines().begin()->a.z()) + m_nominal_z;

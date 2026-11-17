@@ -40,6 +40,8 @@ public:
     // file is readable by its owner only. write_settings returns false when the file was not saved.
     static nlohmann::json       read_settings();
     static bool                 write_settings(nlohmann::json settings);
+    // A key pair is saved. Reads the file only: the secret is not unsealed, so this is cheap enough to call on every repaint.
+    static bool has_keys();
     static std::string          saved_settings_preset();
     static boost::filesystem::path settings_file();
 

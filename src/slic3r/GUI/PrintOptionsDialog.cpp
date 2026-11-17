@@ -1,4 +1,5 @@
 #include "PrintOptionsDialog.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include <boost/log/trivial.hpp>
 #include <cstddef>
 #include <ctime>
@@ -44,9 +45,9 @@ static const wxColour STATIC_TEXT_EXPLAIN_COL = wxColour(100, 100, 100);
 namespace Slic3r { namespace GUI {
 
 static StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(206, 206, 206), StateColor::Disabled),
-                               std::pair<wxColour, int>(wxColour("#5C5C5C"), StateColor::Pressed),
-                               std::pair<wxColour, int>(wxColour("#888888"), StateColor::Hovered),
-                               std::pair<wxColour, int>(wxColour(118, 118, 118), StateColor::Normal));
+                               std::pair<wxColour, int>(Slic3r::GUI::Accent::pressed(), StateColor::Pressed),
+                               std::pair<wxColour, int>(Slic3r::GUI::Accent::hover(), StateColor::Hovered),
+                               std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal));
 
 PrintOptionsDialog::PrintOptionsDialog(wxWindow* parent)
     : DPIDialog(parent, wxID_ANY, _L("Print Options"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX)

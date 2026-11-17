@@ -3292,11 +3292,11 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     if (has_scarf_joint_seam != nullptr)
         m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || has_scarf_joint_seam->value;
 
-    // UNLAYERED_MOD: non-planar layers move Z up and down within a layer, so layers are taken from
-    // the layer-change tags rather than from Z.
-    const ConfigOptionBool* enable_nonplanar = config.option<ConfigOptionBool>("enable_nonplanar");
-    if (enable_nonplanar != nullptr)
-        m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || enable_nonplanar->value;
+    // UNLAYERED_MOD: non-planar layers move Z up and down within a layer, and a belt printer's
+    // machine Z is not the layer height, so both take layers from the layer-change tags.
+    for (const char* key : {"enable_nonplanar", "belt_printer"})
+        if (const ConfigOptionBool* opt = config.option<ConfigOptionBool>(key); opt != nullptr)
+            m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || opt->value;
     
     const ConfigOptionBool* manual_filament_change = config.option<ConfigOptionBool>("manual_filament_change");
     if (manual_filament_change != nullptr)
@@ -3743,11 +3743,11 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     if (has_scarf_joint_seam != nullptr)
         m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || has_scarf_joint_seam->value;
 
-    // UNLAYERED_MOD: non-planar layers move Z up and down within a layer, so layers are taken from
-    // the layer-change tags rather than from Z.
-    const ConfigOptionBool* enable_nonplanar = config.option<ConfigOptionBool>("enable_nonplanar");
-    if (enable_nonplanar != nullptr)
-        m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || enable_nonplanar->value;
+    // UNLAYERED_MOD: non-planar layers move Z up and down within a layer, and a belt printer's
+    // machine Z is not the layer height, so both take layers from the layer-change tags.
+    for (const char* key : {"enable_nonplanar", "belt_printer"})
+        if (const ConfigOptionBool* opt = config.option<ConfigOptionBool>(key); opt != nullptr)
+            m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || opt->value;
 
     const ConfigOptionBool* manual_filament_change = config.option<ConfigOptionBool>("manual_filament_change");
     if (manual_filament_change != nullptr)

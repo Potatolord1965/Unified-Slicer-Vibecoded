@@ -1,5 +1,7 @@
 #include "MarkforgedEiger.hpp"
+#include "SecretBox.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -9,10 +11,7 @@
 #include <thread>
 #include <utility>
 
-#ifdef _WIN32
-#include <windows.h>
-#include <wincrypt.h>
-#else
+#ifndef _WIN32
 #include <sys/stat.h>
 #endif
 
@@ -51,21 +50,6 @@ std::string trim_quotes(std::string s)
     return s;
 }
 
-#ifdef _WIN32
-// Throws on failure.
-std::string dpapi(const std::string& in, bool protect)
-{
-    DATA_BLOB src{static_cast<DWORD>(in.size()), reinterpret_cast<BYTE*>(const_cast<char*>(in.data()))};
-    DATA_BLOB dst{0, nullptr};
-    const BOOL ok = protect ? CryptProtectData(&src, L"Markforged Eiger", nullptr, nullptr, nullptr, 0, &dst) :
-                              CryptUnprotectData(&src, nullptr, nullptr, nullptr, nullptr, 0, &dst);
-    if (!ok)
-        throw std::runtime_error("DPAPI error " + std::to_string(GetLastError()));
-    std::string out(reinterpret_cast<const char*>(dst.pbData), dst.cbData);
-    LocalFree(dst.pbData);
-    return out;
-}
-
 std::string to_hex(const std::string& data)
 {
     static const char digits[] = "0123456789abcdef";
@@ -85,7 +69,6 @@ std::string from_hex(const std::string& hex)
         out += char(std::stoi(hex.substr(i, 2), nullptr, 16));
     return out;
 }
-#endif
 
 json items_of(const json& res)
 {
@@ -150,29 +133,30 @@ json Eiger::read_settings()
     json j = json::parse(ss.str(), nullptr, false);
     if (!j.is_object())
         return json::object();
-#ifdef _WIN32
     // A plain "secret_key" (earlier builds, or typed in by hand) is read as it is and protected on the next save.
     if (j.contains("secret_key_protected") && j["secret_key_protected"].is_string()) {
         try {
-            j["secret_key"] = dpapi(from_hex(j["secret_key_protected"].get<std::string>()), false);
+            j["secret_key"] = SecretBox::open(from_hex(j["secret_key_protected"].get<std::string>()), "markforged");
         } catch (const std::exception& e) {
             BOOST_LOG_TRIVIAL(warning) << "Markforged: saved secret key unreadable: " << e.what();
         }
         j.erase("secret_key_protected");
     }
-#endif
     return j;
 }
 
 bool Eiger::write_settings(json settings)
 {
     try {
-#ifdef _WIN32
         if (settings.contains("secret_key") && settings["secret_key"].is_string()) {
-            settings["secret_key_protected"] = to_hex(dpapi(settings["secret_key"].get<std::string>(), true));
-            settings.erase("secret_key");
+            const std::string plain  = settings["secret_key"].get<std::string>();
+            const std::string sealed = SecretBox::seal(plain, "markforged");
+            // Without a keychain (seal() returns the text) the key stays plain in the owner-only file.
+            if (sealed != plain) {
+                settings["secret_key_protected"] = to_hex(sealed);
+                settings.erase("secret_key");
+            }
         }
-#endif
         fs::create_directories(settings_file().parent_path());
         boost::nowide::ofstream out(settings_file().string(), std::ios::trunc);
         out << settings.dump(2);
@@ -217,6 +201,18 @@ void Eiger::save_keys(const EigerKeys& keys)
     s["access_key"] = keys.access;
     s["secret_key"] = keys.secret;
     write_settings(std::move(s));
+}
+
+bool Eiger::has_keys()
+{
+    boost::nowide::ifstream in(settings_file().string());
+    if (!in)
+        return false;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const json j       = json::parse(ss.str(), nullptr, false);
+    auto       present = [&j](const char* key) { return j.contains(key) && j[key].is_string() && !j[key].get<std::string>().empty(); };
+    return j.is_object() && present("access_key") && (present("secret_key") || present("secret_key_protected"));
 }
 
 std::string Eiger::saved_settings_preset() { return read_settings().value("settings_preset", ""); }
@@ -319,6 +315,16 @@ bool MarkforgedEigerHost::upload(PrintHostUpload u, ProgressFn progress_fn, Erro
     const std::string action = u.extended("eiger_action", "now");
     const std::string preset = u.extended("eiger_preset");
     const std::string title  = u.extended("eiger_title", u.upload_path.stem().string());
+    // The STL is a temporary file made for this upload: remove it however the upload ends.
+    struct RemoveOnExit
+    {
+        fs::path path;
+        ~RemoveOnExit()
+        {
+            boost::system::error_code ec;
+            fs::remove(path, ec);
+        }
+    } remove_stl{u.source_path};
     try {
         Eiger api(m_keys);
         step(10, _u8L("Uploading to Eiger…"));
@@ -327,6 +333,7 @@ bool MarkforgedEigerHost::upload(PrintHostUpload u, ProgressFn progress_fn, Erro
         std::string  job     = up.is_object() && up.contains("slice_job_id") ? up["slice_job_id"].is_string() ? up["slice_job_id"].get<std::string>() :
                                                                                                                    up["slice_job_id"].dump() :
                                                                              std::string();
+        const json part_id = up.is_object() && up.contains("id") ? up["id"] : json();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(SLICE_TIMEOUT);
         while (!job.empty()) {
             std::string st = api.slice_status(job);
@@ -349,7 +356,19 @@ bool MarkforgedEigerHost::upload(PrintHostUpload u, ProgressFn progress_fn, Erro
         while (build_id.empty() && std::chrono::steady_clock::now() < wait_until) {
             for (const json& b : api.builds_titled(title)) {
                 const double created = iso_time(b.value("created_at", ""));
-                if (b.value("sliced", false) && created > 0 && created >= started - 120) {
+                if (!b.value("sliced", false) || created <= 0 || created < started - 120)
+                    continue;
+                // Two uploads with the same title can race: when the build lists its parts, it
+                // must hold the part this upload made.
+                if (!part_id.is_null() && b.contains("parts") && b["parts"].is_array()) {
+                    const json& parts = b["parts"];
+                    const bool  ours  = std::any_of(parts.begin(), parts.end(), [&part_id](const json& p) {
+                        return p == part_id || (p.is_object() && p.contains("id") && p["id"] == part_id);
+                    });
+                    if (!ours)
+                        continue;
+                }
+                {
                     build_id = b["id"].is_string() ? b["id"].get<std::string>() : b["id"].dump();
                     break;
                 }
@@ -377,8 +396,6 @@ bool MarkforgedEigerHost::upload(PrintHostUpload u, ProgressFn progress_fn, Erro
                 api.post("/devices/" + Http::url_encode(device) + "/queue", {{"build", build_id}});
         }
         step(100, std::string());
-        boost::system::error_code ec;
-        fs::remove(u.source_path, ec);
         return true;
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(error) << "Eiger: " << e.what();

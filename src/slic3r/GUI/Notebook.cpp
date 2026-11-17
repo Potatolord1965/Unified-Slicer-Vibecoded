@@ -1,4 +1,5 @@
 #include "Notebook.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 //#ifdef _WIN32
 
@@ -133,7 +134,7 @@ void ButtonsListCtrl::SetSelection(int sel)
     if (m_selection == sel && sel >= 0 && sel < static_cast<int>(m_pageButtons.size()))
         return;
     // BBS: change button color
-    wxColour selected_btn_bg("#767676");    // Gradient #767676
+    wxColour selected_btn_bg(Slic3r::GUI::Accent::Base);    // Gradient #767676
     if (m_selection >= 0 && m_selection < static_cast<int>(m_pageButtons.size())) {
         StateColor bg_color = StateColor(
         std::pair{wxColour(107, 107, 107), (int) StateColor::Hovered},
@@ -154,8 +155,8 @@ void ButtonsListCtrl::SetSelection(int sel)
     m_selection = sel;
 
     StateColor bg_color = StateColor(
-        std::pair{wxColour(118, 118, 118), (int) StateColor::Hovered},
-        std::pair{wxColour(118, 118, 118), (int) StateColor::Normal});
+        std::pair{Slic3r::GUI::Accent::base(), (int) StateColor::Hovered},
+        std::pair{Slic3r::GUI::Accent::base(), (int) StateColor::Normal});
     m_pageButtons[m_selection]->SetBackgroundColor(bg_color);
 
     StateColor text_color = StateColor(

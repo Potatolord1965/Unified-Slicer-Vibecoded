@@ -6,6 +6,7 @@
 #include "../Layer.hpp"
 #include "../Print.hpp"
 #include "../PrintConfig.hpp"
+#include "../libslic3r.h"
 
 #include <tbb/parallel_for.h>
 

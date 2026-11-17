@@ -111,7 +111,9 @@ wxString elegoo_user_agent()
 #else
     const char* platform = "X11; Linux x86_64";
 #endif
-    return wxString::FromUTF8("ElegooSlicer/1.5.3.5 (" + theme + ") Mozilla/5.0 (" + platform + ")");
+    // Nexprint's slicer page needs the ElegooSlicer token; ours goes last so the app stays identifiable.
+    return wxString::FromUTF8("ElegooSlicer/1.5.3.5 (" + theme + ") Mozilla/5.0 (" + platform + ") " + SLIC3R_APP_KEY + "/" +
+                              SLIC3R_VERSION);
 }
 
 wxString http_origin(const wxString& url)
@@ -127,6 +129,15 @@ wxString http_origin(const wxString& url)
 }
 
 std::string url_host(const std::string& url) { return wxURI(wxString::FromUTF8(url)).GetServer().Lower().utf8_string(); }
+
+// The Nexprint pages themselves. The pane can wander to any Elegoo site, but the Elegoo account
+// tokens are handed only to these origins.
+bool is_nexprint_page(const wxString& url)
+{
+    const wxString origin = http_origin(url);
+    return origin == "https://www.nexprint.com" || origin == "https://nexprint.com" ||
+           origin == "https://www.nexprint.cn" || origin == "https://nexprint.cn";
+}
 
 // Whether `url` is an https page of MakerWorld, the only pages its command set is served to.
 bool is_makerworld_page(const wxString& url)
@@ -680,9 +691,9 @@ void ModelSiteView::on_webview_event(wxWebViewEvent& evt)
             evt.Veto();
             unlayered_sign_in(unlayered_login_next(url));
         } else if (!url.empty() && !url.StartsWith("http://") && !url.StartsWith("https://") && !url.StartsWith("about:")) {
-            // mailto: and other apps' links.
+            // mailto: links go to the mail app; other schemes are refused.
             evt.Veto();
-            wxLaunchDefaultBrowser(url);
+            WebView::OpenExternalLink(url);
         }
         // Anything else opens as a pop-up window of the app (wxEVT_WEBVIEW_NEWWINDOW_FEATURES).
     } else if (type == wxEVT_WEBVIEW_LOADED) {
@@ -720,7 +731,7 @@ void ModelSiteView::handle_script_message(const std::string& body)
     if (!msg.is_object())
         return;
     if (m_site == "nexprint") {
-        if (ElegooCloud::is_elegoo_page(page.utf8_string()))
+        if (is_nexprint_page(page))
             nexprint_message(msg);
     }
     else if (m_site == "unlayered")
