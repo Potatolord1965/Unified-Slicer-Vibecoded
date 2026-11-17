@@ -1953,6 +1953,29 @@ TEST_CASE("A lifted nozzle keeps its height over an exclusion-volume detour", "[
     CHECK(count_travels_after_descent(gcode) == 0);
 }
 
+// A single-extruder writer that lifts 0.4 mm on every retraction.
+static void configure_lift_writer(GCodeWriter &writer)
+{
+    std::vector<unsigned int> extruder_ids { 0 };
+    writer.set_extruders(extruder_ids);
+    writer.set_extruder(0);
+    writer.config.travel_speed.values       = { 100.0 };
+    writer.config.travel_speed_z.values     = { 100.0 };
+    writer.config.z_hop.values              = { 0.4 };
+    writer.config.retract_lift_above.values = { 0.0 };
+    writer.config.retract_lift_below.values = { 0.0 };
+}
+
+static size_t count_g1(const std::string &gcode)
+{
+    size_t n = 0;
+    GCodeReader reader;
+    reader.parse_buffer(gcode, [&n](GCodeReader &, const GCodeReader::GCodeLine &line) {
+        if (line.cmd_is("G1")) ++n;
+    });
+    return n;
+}
+
 TEST_CASE("A lifted travel that ends lower descends only at its destination", "[GCodeWriter]") {
     // Reverse X maps the X and Z of a move together, so the descent re-emits X and Y.
     const bool remap   = GENERATE(false, true);
