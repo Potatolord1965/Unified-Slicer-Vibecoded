@@ -1,4 +1,5 @@
 #include "KBShortcutsDialog.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "I18N.hpp"
 #include "GUI.hpp"
 #include <vector>
@@ -462,7 +463,7 @@ ShortcutCaptureDialog::ShortcutCaptureDialog(wxWindow* parent, Shortcut shortcut
     const wxColour box_colour = StateColor::darkModeColorFor(*wxWHITE);
     StaticBox* capture = new StaticBox(this, wxID_ANY, wxDefaultPosition, wxSize(width, FromDIP(60)), wxWANTS_CHARS);
     capture->SetCornerRadius(FromDIP(4));
-    capture->SetBorderColorNormal(StateColor::darkModeColorFor(wxColour("#767676")));   // the focused-input colour, since the box always has the focus
+    capture->SetBorderColorNormal(StateColor::darkModeColorFor(Slic3r::GUI::Accent::base()));   // the focused-input colour, since the box always has the focus
     capture->SetBackgroundColorNormal(box_colour);
     capture->SetBackgroundColour(box_colour);
     wxBoxSizer* capture_sizer = new wxBoxSizer(wxVERTICAL);

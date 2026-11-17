@@ -1,4 +1,5 @@
 #include "TempInput.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 #include "PopupWindow.hpp"
 #include "../I18N.hpp"
@@ -39,7 +40,7 @@ TempInput::TempInput()
 {
     hover  = false;
     radius = 0;
-    border_color = StateColor(std::make_pair(*wxWHITE, (int) StateColor::Disabled), std::make_pair(0x767676, (int) StateColor::Focused), std::make_pair(0x767676, (int) StateColor::Hovered),
+    border_color = StateColor(std::make_pair(*wxWHITE, (int) StateColor::Disabled), std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Focused), std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Hovered),
                  std::make_pair(*wxWHITE, (int) StateColor::Normal));
     background_color = StateColor(std::make_pair(*wxWHITE, (int) StateColor::Disabled), std::make_pair(*wxWHITE, (int) StateColor::Normal));
     SetFont(Label::Body_12);
@@ -441,8 +442,8 @@ void TempInput::render(wxDC &dc)
     if (warning_mode) {
         border_color = wxColour(255, 111, 0);
     } else {
-        border_color = StateColor(std::make_pair(*wxWHITE, (int) StateColor::Disabled), std::make_pair(0x767676, (int) StateColor::Focused),
-                                  std::make_pair(0x767676, (int) StateColor::Hovered), std::make_pair(*wxWHITE, (int) StateColor::Normal));
+        border_color = StateColor(std::make_pair(*wxWHITE, (int) StateColor::Disabled), std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Focused),
+                                  std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Hovered), std::make_pair(*wxWHITE, (int) StateColor::Normal));
     }
 
     dc.SetBrush(*wxTRANSPARENT_BRUSH);

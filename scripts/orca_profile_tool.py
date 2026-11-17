@@ -178,9 +178,10 @@ OBSOLETE_KEYS = {
     "anisotropic_surfaces",
     # Belt printer options retired before the feature shipped (#16236).
     "belt_slice_rotation_global", "preslice_remap_x", "preslice_remap_y", "preslice_remap_z",
-    "preslice_remap_global", "belt_support_z_offset_mode", "first_layer_plane",
-    "first_layer_plane_offset", "belt_preslice_global", "gcode_back_transform",
-    "belt_support_floor_mode", "first_layer_plane_thickness",
+    "preslice_remap_global", "belt_support_z_offset_mode",
+    "belt_preslice_global", "gcode_back_transform", "belt_support_floor_mode",
+    # Unlayered: first_layer_plane* are live options here (the contact-aware first layer).
+    "nonplanar_top_thickness",
 }
 
 # Keys renamed at some point, whose old and new spellings must never co-exist:

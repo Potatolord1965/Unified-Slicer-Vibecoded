@@ -1773,6 +1773,19 @@ int CLI::run(int argc, char **argv)
                     }*/
 
                     Semver cli_ver = *Semver::parse(SoftFever_VERSION);
+                    // A project this fork saved also carries the fork's tag (the version this build
+                    // writes there is SoftFever_VERSION; releases before that tag wrote a 0.x release into
+                    // the OrcaSlicer tag). Refuse one from a newer build, and judge OrcaSlicer's
+                    // migrations of old files by this build's base rather than by that 0.x number.
+                    if (const std::optional<Semver> fork_version = unlayered_3mf_version(model)) {
+                        if (!allow_newer_file && (cli_ver.maj() < fork_version->maj() || (cli_ver.maj() == fork_version->maj() && cli_ver.min() < fork_version->min()))) {
+                            BOOST_LOG_TRIVIAL(error) << boost::format("Version Check: File Version %1% not supported by current cli version %2%") % fork_version->to_string() % SoftFever_VERSION;
+                            record_exit_reson(outfile_dir, CLI_FILE_VERSION_NOT_SUPPORTED, 0, cli_errors[CLI_FILE_VERSION_NOT_SUPPORTED], sliced_info);
+                            flush_and_exit(CLI_FILE_VERSION_NOT_SUPPORTED);
+                        }
+                        if (file_version.maj() == 0)
+                            file_version = cli_ver;
+                    }
                     if (!allow_newer_file && ((cli_ver.maj() < file_version.maj()) || ((cli_ver.maj() == file_version.maj()) && (cli_ver.min() < file_version.min())))){
                         BOOST_LOG_TRIVIAL(error) << boost::format("Version Check: File Version %1% not supported by current cli version %2%")%file_version.to_string() %SoftFever_VERSION;
                         record_exit_reson(outfile_dir, CLI_FILE_VERSION_NOT_SUPPORTED, 0, cli_errors[CLI_FILE_VERSION_NOT_SUPPORTED], sliced_info);
@@ -4257,6 +4270,8 @@ int CLI::run(int argc, char **argv)
         //ORCA: an option no preset or project defines has just come in as its single default value, and a
         //      command line override may hold one value per filament.
         normalize_filament_values_to_variants(m_print_config);
+        // UNLAYERED_MOD -- axis_selection may only now have come in as its default.
+        derive_virtual_5axis(m_print_config);
     } else {
         boost::nowide::cerr << "invalid printer_technology " << std::endl;
         record_exit_reson(outfile_dir, CLI_INVALID_PRINTER_TECH, 0, cli_errors[CLI_INVALID_PRINTER_TECH], sliced_info);

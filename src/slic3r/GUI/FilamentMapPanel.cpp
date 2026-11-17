@@ -1,4 +1,5 @@
 #include "FilamentMapPanel.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "GUI_App.hpp"
 #include "I18N.hpp"
 #include "Plater.hpp"
@@ -34,7 +35,7 @@ static const wxColour BgSelectColor  = wxColour("#ECECEC"); // ORCA
 static const wxColour BgDisableColor = wxColour("#CECECE");
 
 static const wxColour BorderNormalColor   = wxColour("#CECECE");
-static const wxColour BorderSelectedColor = wxColour("#767676");
+static const wxColour BorderSelectedColor = Slic3r::GUI::Accent::base();
 static const wxColour BorderDisableColor  = wxColour("#EEEEEE");
 
 static const wxColour TextNormalBlackColor = wxColour("#262E30");

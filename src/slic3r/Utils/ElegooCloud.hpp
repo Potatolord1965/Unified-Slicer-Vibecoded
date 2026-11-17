@@ -185,6 +185,8 @@ public:
 private:
     ElegooCloud();
     struct LiveSession;
+    // Takes m_rtm_mutex for a live call; throws when a print send keeps it longer than a few seconds.
+    std::unique_lock<std::timed_mutex> live_lock();
     // Request over the kept session; opens it, or reopens it once after a failure. Needs m_rtm_mutex held.
     nlohmann::json live_request(const std::string& serial, int method, const nlohmann::json& params, int timeout_s = 10);
     std::string    api_base() const;
@@ -206,7 +208,9 @@ private:
     std::mutex m_refresh_mutex;
     ElegooCloudAccount           m_account;
     // One RTM session per account at a time: the cloud allows a single messaging login.
-    std::mutex                   m_rtm_mutex;
+    // Held by a print send for the whole printer download (one messaging login per account), so
+    // the live calls wait for it only briefly and then report that a send is in progress.
+    std::timed_mutex             m_rtm_mutex;
     std::unique_ptr<LiveSession> m_live; // guarded by m_rtm_mutex
     std::mutex                   m_raw_mutex;
     RawMessageFn                 m_raw_listener; // guarded by m_raw_mutex

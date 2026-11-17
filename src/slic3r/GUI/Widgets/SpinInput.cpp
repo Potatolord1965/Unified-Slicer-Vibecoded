@@ -1,4 +1,5 @@
 #include "SpinInput.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 #include "Button.hpp"
 #include "TextCtrl.h"
@@ -46,7 +47,7 @@ SpinInput::SpinInput()
 {
     radius = 0;
     border_width     = 1;
-    border_color     = StateColor(std::make_pair(0xDBDBDB, (int) StateColor::Disabled), std::make_pair(0x767676, (int) StateColor::Hovered),
+    border_color     = StateColor(std::make_pair(0xDBDBDB, (int) StateColor::Disabled), std::make_pair(Slic3r::GUI::Accent::BaseRGB, (int) StateColor::Hovered),
                               std::make_pair(0xDBDBDB, (int) StateColor::Normal));
     background_color = StateColor(std::make_pair(0xF0F0F1, (int) StateColor::Disabled), std::make_pair(*wxWHITE, (int) StateColor::Normal));
 }

@@ -57,6 +57,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Pages hand over in-memory downloads as blob: URLs, which only the page itself can read. This
@@ -81,6 +82,9 @@ private fun blobScript(url: String, name: String) = """
 })();
 """
 
+/** The largest file the blob bridge accepts; sliced files are far smaller. */
+private const val MAX_BRIDGE_BYTES = 512L * 1024 * 1024
+
 private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ") + "\""
 
 /** An in-app browser for one model site. A downloaded printer-ready file is handed to [onFile]. */
@@ -91,6 +95,7 @@ fun BrowserScreen(site: ModelSite, http: OkHttpClient, onBack: () -> Unit, onFil
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loading by remember { mutableIntStateOf(0) }
     var download by remember { mutableStateOf<String?>(null) }
+    val blobArmed = remember { AtomicBoolean(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val accent = site.brand.color()
@@ -140,31 +145,48 @@ fun BrowserScreen(site: ModelSite, http: OkHttpClient, onBack: () -> Unit, onFil
                         settings.userAgentString = settings.userAgentString.replace("; wv", "")
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
-                        // blob: downloads arrive through this bridge, written straight to the cache.
+                        // blob: downloads arrive through this bridge, written straight to the cache. Any page or
+                        // frame can call it, so it only accepts a download the app itself started (blobArmed, set
+                        // by the download listener below) and stops at MAX_BRIDGE_BYTES.
                         addJavascriptInterface(object {
                             private var out: FileOutputStream? = null
                             private var file: File? = null
+                            private var written = 0L
 
                             @JavascriptInterface
                             fun begin(name: String, size: Double) {
+                                if (!blobArmed.getAndSet(false) || size > MAX_BRIDGE_BYTES) return
                                 out?.close()
-                                file = PrintFiles.newFile(ctx, name).also { out = FileOutputStream(it) }
+                                written = 0L
+                                file = PrintFiles.newFile(ctx, PrintFiles.safeName(name)).also { out = FileOutputStream(it) }
                                 main.post { download = name }
                             }
 
                             @JavascriptInterface
-                            fun chunk(base64: String) { out?.write(Base64.decode(base64, Base64.DEFAULT)) }
+                            fun chunk(base64: String) {
+                                val stream = out ?: return
+                                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                                written += bytes.size
+                                if (written > MAX_BRIDGE_BYTES) {
+                                    fail("file too large")
+                                    return
+                                }
+                                stream.write(bytes)
+                            }
 
                             @JavascriptInterface
                             fun end() {
-                                out?.close(); out = null
+                                val stream = out ?: return
+                                stream.close(); out = null
                                 file?.let { f -> main.post { finished(f) } }
+                                file = null
                             }
 
                             @JavascriptInterface
                             fun fail(message: String) {
+                                if (out == null && file == null) return
                                 out?.close(); out = null
-                                file?.delete()
+                                file?.delete(); file = null
                                 main.post { failed(message) }
                             }
                         }, "UnifiedDownloads")
@@ -172,6 +194,7 @@ fun BrowserScreen(site: ModelSite, http: OkHttpClient, onBack: () -> Unit, onFil
                         setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                             val name = PrintFiles.safeName(URLUtil.guessFileName(url, contentDisposition, mimeType))
                             if (url.startsWith("blob:")) {
+                                blobArmed.set(true)
                                 evaluateJavascript(blobScript(url, name), null)
                                 return@setDownloadListener
                             }

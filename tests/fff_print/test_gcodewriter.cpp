@@ -374,6 +374,43 @@ SCENARIO("z_hop lifts the nozzle when a lift is requested", "[GCodeWriter]") {
     }
 }
 
+// A lifted travel on an ordinary (planar) print keeps the stock lift shapes: the spiral lift climbs
+// on an arc and the slope lift climbs along the travel. The non-planar engine forces a straight
+// lift, and once forced it for every print.
+SCENARIO("A planar lifted travel keeps the spiral and slope lift shapes", "[GCodeWriter][Regression]") {
+    GIVEN("A writer at (10, 10, 10) with a 1 mm z hop") {
+        GCodeWriter writer;
+        std::vector<unsigned int> extruder_ids { 0 };
+        writer.set_extruders(extruder_ids);
+        writer.set_extruder(0);
+        writer.config.z_hop.values = { 1.0 };
+        writer.travel_to_xyz(Vec3d(10., 10., 10.));
+        writer.set_current_position_clear(true);
+
+        WHEN("a spiral lift is pending and the nozzle travels to (50, 50)") {
+            writer.config.enable_arc_fitting.value = ArcFittingMode::Enabled; // the spiral as one G2/G3
+            writer.lazy_lift(LiftType::SpiralLift);
+            const std::string gcode = writer.travel_to_xyz(Vec3d(50., 50., 10.));
+            THEN("the lift is an arc up to Z 11") {
+                const bool arc = gcode.find("G2 ") != std::string::npos || gcode.find("G3 ") != std::string::npos;
+                CHECK(arc);
+                CHECK_THAT(gcode, Catch::Matchers::ContainsSubstring("Z11"));
+            }
+        }
+        WHEN("a slope lift is pending and the nozzle travels to (50, 50)") {
+            writer.lazy_lift(LiftType::SlopeLift);
+            const std::string gcode = writer.travel_to_xyz(Vec3d(50., 50., 10.));
+            THEN("the first move climbs while it travels, without a Z-only lift") {
+                const std::string first = gcode.substr(0, gcode.find('\n'));
+                CHECK_THAT(first, Catch::Matchers::ContainsSubstring("X"));
+                CHECK_THAT(first, Catch::Matchers::ContainsSubstring("Z11"));
+                CHECK(gcode.find("G2 ") == std::string::npos);
+                CHECK(gcode.find("G3 ") == std::string::npos);
+            }
+        }
+    }
+}
+
 // BELT_MOD -- the MachineKinematics seam. With the default CartesianKinematics at the identity
 // remap every emitter keeps its historical word-omission branch; a non-identity mapping forces
 // full XYZ through to_machine() at every site.

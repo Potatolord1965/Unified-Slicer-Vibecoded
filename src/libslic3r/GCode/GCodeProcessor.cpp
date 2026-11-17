@@ -3281,8 +3281,6 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
         m_filament_maps = filament_maps->values;
         std::transform(m_filament_maps.begin(), m_filament_maps.end(), m_filament_maps.begin(), [](int value) {return value - 1; });
     }
-    // UNLAYERED MOD
-    /*
 
     const ConfigOptionBool* spiral_vase = config.option<ConfigOptionBool>("spiral_mode");
     if (spiral_vase != nullptr) {
@@ -3292,7 +3290,13 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
 
     const ConfigOptionBool* has_scarf_joint_seam = config.option<ConfigOptionBool>("has_scarf_joint_seam");
     if (has_scarf_joint_seam != nullptr)
-        m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || has_scarf_joint_seam->value;*/
+        m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || has_scarf_joint_seam->value;
+
+    // UNLAYERED_MOD: non-planar layers move Z up and down within a layer, and a belt printer's
+    // machine Z is not the layer height, so both take layers from the layer-change tags.
+    for (const char* key : {"enable_nonplanar", "belt_printer"})
+        if (const ConfigOptionBool* opt = config.option<ConfigOptionBool>(key); opt != nullptr)
+            m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || opt->value;
     
     const ConfigOptionBool* manual_filament_change = config.option<ConfigOptionBool>("manual_filament_change");
     if (manual_filament_change != nullptr)
@@ -3726,8 +3730,7 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
         m_first_layer_height = std::abs(initial_layer_print_height->value);
 
     const ConfigOptionFloat* printable_height = config.option<ConfigOptionFloat>("printable_height");
-    //UNLAYERED MOD
-    /*
+    if (printable_height != nullptr)
         m_result.printable_height = printable_height->value;
 
     const ConfigOptionBool* spiral_vase = config.option<ConfigOptionBool>("spiral_mode");
@@ -3738,7 +3741,13 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
 
     const ConfigOptionBool* has_scarf_joint_seam = config.option<ConfigOptionBool>("has_scarf_joint_seam");
     if (has_scarf_joint_seam != nullptr)
-        m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || has_scarf_joint_seam->value;*/
+        m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || has_scarf_joint_seam->value;
+
+    // UNLAYERED_MOD: non-planar layers move Z up and down within a layer, and a belt printer's
+    // machine Z is not the layer height, so both take layers from the layer-change tags.
+    for (const char* key : {"enable_nonplanar", "belt_printer"})
+        if (const ConfigOptionBool* opt = config.option<ConfigOptionBool>(key); opt != nullptr)
+            m_detect_layer_based_on_tag = m_detect_layer_based_on_tag || opt->value;
 
     const ConfigOptionBool* manual_filament_change = config.option<ConfigOptionBool>("manual_filament_change");
     if (manual_filament_change != nullptr)
@@ -3879,9 +3888,7 @@ void GCodeProcessor::reset()
     m_last_default_color_id = 0;
 
     m_options_z_corrector.reset();
-    //UNLAYERED MOD
-    //m_detect_layer_based_on_tag = false;
-    m_detect_layer_based_on_tag = true;
+    m_detect_layer_based_on_tag = false;
 
     m_seams_count = 0;
     m_g29_time_added = false;

@@ -236,11 +236,18 @@ jobs:
         with:
           name: ${{ github.sha }}-profile-validator-linux-${{ vars.SELF_HOSTED && 'x86_64' || 'aarch64' }}
           path: validator-bin
+      - name: Make the validator executable
+        run: chmod +x validator-bin/OrcaSlicer_profile_validator
+      # check_profiles.yml runs these two with upstream's nightly validator, which does not
+      # know this fork's settings (print_sequence "by group", belt and non-planar options);
+      # this build's own validator does.
+      - name: Validate system profiles
+        run: ./validator-bin/OrcaSlicer_profile_validator -p "${{ github.workspace }}/resources/profiles" -l 2
+      - name: Validate filament subtypes
+        run: ./validator-bin/OrcaSlicer_profile_validator -p "${{ github.workspace }}/resources/profiles" -l 2 -f
       - name: Validate slice (expand custom g-code)
         timeout-minutes: 60
-        run: |
-          chmod +x validator-bin/OrcaSlicer_profile_validator
-          ./validator-bin/OrcaSlicer_profile_validator -p "${{ github.workspace }}/resources/profiles" -s -l 2
+        run: ./validator-bin/OrcaSlicer_profile_validator -p "${{ github.workspace }}/resources/profiles" -s -l 2
   publish_test_results:
     name: Publish Test Results
     needs: [unit_tests_linux_x86_64, unit_tests_linux_aarch64, unit_tests_windows_x64, unit_tests_windows_arm64, unit_tests_macos_arm64, unit_tests_flatpak_x86_64, unit_tests_flatpak_aarch64]

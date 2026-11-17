@@ -1,4 +1,5 @@
 #include "HyperLink.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 #include "Label.hpp"
 #include <wx/string.h>
 #include <wx/wx.h>
@@ -14,8 +15,8 @@ namespace Slic3r { namespace GUI {
 HyperLink::HyperLink(wxWindow* parent, const wxString& label, const wxString& url, long style)
     : wxStaticText(parent, wxID_ANY, label)
     , m_url(url)
-    , m_normalColor(wxColour("#767676")) // used slightly different color otherwise automatically uses ColorForDark that not visible enough
-    , m_hoverColor(wxColour("#888888"))
+    , m_normalColor(Slic3r::GUI::Accent::base()) // used slightly different color otherwise automatically uses ColorForDark that not visible enough
+    , m_hoverColor(Slic3r::GUI::Accent::hover())
 {
     SetForegroundColour(m_normalColor);
     HyperLink::SetFont(Label::Head_14);

@@ -1,4 +1,6 @@
 #include "MultiTaskManagerPage.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
+#include "Widgets/StateColor.hpp"
 #include "I18N.hpp"
 
 #include "GUI_App.hpp"
@@ -73,9 +75,9 @@ MultiTaskItem::MultiTaskItem(wxWindow* parent, MachineObject* obj, int type)
 
 
     auto m_btn_bg_enable = StateColor(
-        std::pair<wxColour, int>(wxColour("#5C5C5C"), StateColor::Pressed),
-        std::pair<wxColour, int>(wxColour("#888888"), StateColor::Hovered),
-        std::pair<wxColour, int>(wxColour(118, 118, 118), StateColor::Normal)
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::pressed(), StateColor::Pressed),
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::hover(), StateColor::Hovered),
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal)
     );
 
     m_button_resume = new Button(this, _L("Resume"));
@@ -415,7 +417,7 @@ void MultiTaskItem::doRender(wxDC& dc)
                     DrawTextWithEllipsis(dc, get_state_device(), FromDIP(DEVICE_LEFT_PRO_INFO), left);
                 }
                 else if (state_device == 1) {
-                    dc.SetTextForeground(wxColour(118, 118, 118));
+                    dc.SetTextForeground(Slic3r::GUI::Accent::base());
                     DrawTextWithEllipsis(dc, get_state_device(), FromDIP(DEVICE_LEFT_PRO_INFO), left);
                 }
                 else if (state_device == 2)
@@ -425,7 +427,7 @@ void MultiTaskItem::doRender(wxDC& dc)
                 }
                 else if (state_device > 2 && state_device < 7) {
                     dc.SetFont(Label::Body_12);
-                    dc.SetTextForeground(wxColour(118, 118, 118));
+                    dc.SetTextForeground(Slic3r::GUI::Accent::base());
                     if (obj_->get_curr_stage() == _L("Printing") && obj_->subtask_) {
                         //wxString layer_info = wxString::Format(_L("Layer: %d/%d"), obj_->curr_layer, obj_->total_layers);
                         wxString progress_info = wxString::Format("%d", obj_->subtask_->task_progress);
@@ -437,8 +439,8 @@ void MultiTaskItem::doRender(wxDC& dc)
                         dc.SetBrush(wxBrush(wxColour(233, 233, 233)));
                         dc.DrawRoundedRectangle(left, FromDIP(30), FromDIP(TASK_LEFT_PRO_INFO), FromDIP(10), 2);
 
-                        dc.SetPen(wxPen(wxColour(118, 118, 118)));
-                        dc.SetBrush(wxBrush(wxColour(118, 118, 118)));
+                        dc.SetPen(wxPen(Slic3r::GUI::Accent::base()));
+                        dc.SetBrush(wxBrush(Slic3r::GUI::Accent::base()));
                         dc.DrawRoundedRectangle(left, FromDIP(30), FromDIP(TASK_LEFT_PRO_INFO) * (static_cast<float>(obj_->subtask_->task_progress) / 100.0f), FromDIP(10), 2);
                     }
                     else {
@@ -461,8 +463,8 @@ void MultiTaskItem::doRender(wxDC& dc)
             dc.SetBrush(wxBrush(wxColour(233, 233, 233)));
             dc.DrawRoundedRectangle(left, FromDIP(30), FromDIP(TASK_LEFT_PRO_INFO), FromDIP(10), 2);
 
-            dc.SetPen(wxPen(wxColour(118, 118, 118)));
-            dc.SetBrush(wxBrush(wxColour(118, 118, 118)));
+            dc.SetPen(wxPen(Slic3r::GUI::Accent::base()));
+            dc.SetBrush(wxBrush(Slic3r::GUI::Accent::base()));
             dc.DrawRoundedRectangle(left, FromDIP(30), FromDIP(TASK_LEFT_PRO_INFO) * (static_cast<float>(m_sending_percent) / 100.0f), FromDIP(10), 2);
         }
         /*else {
@@ -488,7 +490,7 @@ void MultiTaskItem::doRender(wxDC& dc)
     left += FromDIP(TASK_LEFT_SEND_TIME);
 
     if (m_hover) {
-        dc.SetPen(wxPen(wxColour(118, 118, 118)));
+        dc.SetPen(wxPen(Slic3r::GUI::Accent::base()));
         dc.SetBrush(*wxTRANSPARENT_BRUSH);
         dc.DrawRoundedRectangle(0, 0, size.x, size.y, 3);
     }

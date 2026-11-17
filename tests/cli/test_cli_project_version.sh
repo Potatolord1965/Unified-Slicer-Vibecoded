@@ -45,13 +45,13 @@ EOF
 # slice <tag> <expected exit status> <input> [option...]: slice into $WORK/<tag>/out.3mf with a fresh
 # data directory, logging at info level to $WORK/<tag>/cli.log.
 slice() {
-    local out="$WORK/$1" want="$2" input="$3"; shift 3
+    local tag="$1" out="$WORK/$1" want="$2" input="$3"; shift 3
     mkdir -p "$out"
     timeout 300 "$BIN" --datadir "$out/datadir" --debug 3 --logfile "$out/cli.log" "$@" --slice 0 --outputdir "$out" \
         --export-3mf out.3mf "$input" > "$out/log" 2>&1
     local rc=$?
     if [ "$rc" -ne "$want" ]; then
-        echo "FAIL: $1: orca-slicer exited $rc, want $want"
+        echo "FAIL: $tag: orca-slicer exited $rc, want $want"
         tail -n 40 "$out/log"
         exit 1
     fi

@@ -534,16 +534,23 @@ int slice_all_printers(const std::string &vendor, const std::string &outdir)
         const std::string filament_name = bundle.filaments.get_selected_preset_name();
         const std::string what          = "Printer \"" + printer + "\"";
         const std::string file_base     = sanitize_filename(vendor_name) + "__" + sanitize_filename(printer);
-        // A belt printer has no wipe tower (it purges into a prism object on the belt), so its
-        // filament change is the plain tool change set_extruder() emits rather than the tower's block.
-        const bool        belt   = bundle.printers.get_selected_preset().config.opt_bool("belt_printer");
-        const std::string marker = belt ? "\nT1\n" : "CP TOOLCHANGE START";
+        // A belt printer has no wipe tower (it purges into a prism object on the belt), and "by group"
+        // prints, like "by object", build none either, so their filament change is the plain tool change
+        // set_extruder() emits rather than the tower's block. With manual_filament_change that tool
+        // change is written as a comment.
+        const DynamicPrintConfig full   = bundle.full_config();
+        const bool               belt   = full.opt_bool("belt_printer");
+        const bool towerless = belt || full.opt_enum<PrintSequence>("print_sequence") == PrintSequence::ByGroup;
+        const std::string label  = !towerless                               ? "CP TOOLCHANGE START" :
+                                   full.opt_bool("manual_filament_change") ? "; MANUAL_TOOL_CHANGE T1" :
+                                                                             "T1";
+        const std::string marker = label == "T1" ? "\nT1\n" : label;
         if (const std::string out = slice_selection(bundle, what, false, outdir, file_base); out.empty())
             ++failures;
         else if (out.find(marker) == std::string::npos) {
             // The filament change never fired, so change_filament_gcode was not exercised.
             BOOST_LOG_TRIVIAL(error) << what << " sliced but the filament change never fired (no "
-                                     << (belt ? "T1" : "CP TOOLCHANGE START") << ")";
+                                     << label << ")";
             ++failures;
         }
         cover(bundle.prints.get_selected_preset());

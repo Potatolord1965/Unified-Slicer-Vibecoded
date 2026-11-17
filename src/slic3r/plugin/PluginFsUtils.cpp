@@ -14,6 +14,7 @@
 #include <boost/nowide/cstdio.hpp>
 #include <boost/nowide/fstream.hpp>
 #include <ios>
+#include <iterator>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -252,37 +253,19 @@ void scan_plugin_directory(const std::string& dir_path, std::vector<PluginDescri
 
 namespace {
 // Unified Slicer: plugins that ship with the app (resources/plugins/*.py) are copied into the
-// user's local plugin folder, where they can keep their data next to themselves. A copy that is
-// missing, or older than the bundled one (PEP 723 "version"), is (re)installed; a newer or
-// hand-edited copy with a higher version is left alone.
-std::string bundled_plugin_version(const boost::filesystem::path& file)
+// user's local plugin folder, where they can keep their data next to themselves. They run with full
+// access (the LAN agent talks to whatever printer address the user enters, and the agents read
+// G-code from wherever it was exported), so the installed copy must always be the shipped code: a
+// copy that is missing or differs from the bundled file in any byte is replaced on every start.
+// Edit the file under resources/plugins, or copy it to a new package folder, to change one.
+bool same_file_bytes(const boost::filesystem::path& a, const boost::filesystem::path& b)
 {
-    boost::nowide::ifstream in(file.string());
-    std::string line;
-    for (int i = 0; i < 40 && std::getline(in, line); ++i) {
-        const auto pos = line.find("version");
-        if (line.rfind("#", 0) == 0 && pos != std::string::npos && line.find('=', pos) != std::string::npos) {
-            const auto q1 = line.find('"', pos);
-            const auto q2 = q1 == std::string::npos ? q1 : line.find('"', q1 + 1);
-            if (q2 != std::string::npos)
-                return line.substr(q1 + 1, q2 - q1 - 1);
-        }
-    }
-    return {};
-}
-
-bool version_less(const std::string& a, const std::string& b)
-{
-    auto parts = [](const std::string& v) {
-        std::vector<int> out;
-        std::string cur;
-        for (char c : v + ".") {
-            if (c == '.') { out.push_back(cur.empty() ? 0 : std::atoi(cur.c_str())); cur.clear(); }
-            else if (std::isdigit(static_cast<unsigned char>(c))) cur += c;
-        }
-        return out;
-    };
-    return parts(a) < parts(b);
+    boost::nowide::ifstream fa(a.string(), std::ios::binary), fb(b.string(), std::ios::binary);
+    if (!fa || !fb)
+        return false;
+    const std::string da((std::istreambuf_iterator<char>(fa)), std::istreambuf_iterator<char>());
+    const std::string db((std::istreambuf_iterator<char>(fb)), std::istreambuf_iterator<char>());
+    return da == db;
 }
 
 // Each bundled plugin gets its own package folder (orca_plugins/<name>/<name>.py): discovery only
@@ -312,7 +295,7 @@ void seed_bundled_plugins(const boost::filesystem::path& local_dir)
         if (fs::is_directory(loose_data, fec) && !fs::exists(pkg_data, fec))
             fs::rename(loose_data, pkg_data, fec);
 
-        if (!fs::exists(dst, fec) || version_less(bundled_plugin_version(dst), bundled_plugin_version(src))) {
+        if (!fs::exists(dst, fec) || !same_file_bytes(dst, src)) {
             fs::copy_file(src, dst, fs::copy_options::overwrite_existing, fec);
             if (fec) {
                 BOOST_LOG_TRIVIAL(warning) << "Could not install bundled plugin " << src.filename().string() << ": " << fec.message();
@@ -365,11 +348,8 @@ std::vector<std::string> get_plugin_directories(const std::string& cloud_user_id
 
     // Local plugins: {data_dir}/orca_plugins/
     add_or_create_dir(fs::path(data_dir()) / "orca_plugins");
-    static bool seeded = false;
-    if (!seeded) {
-        seeded = true;
-        seed_bundled_plugins(fs::path(data_dir()) / "orca_plugins");
-    }
+    static std::once_flag seeded;
+    std::call_once(seeded, [] { seed_bundled_plugins(fs::path(data_dir()) / "orca_plugins"); });
 
     // Cloud plugins: {data_dir}/orca_plugins/_subscribed/{user_id}/
     if (!cloud_user_id.empty())

@@ -1,4 +1,5 @@
 #include "MultiNozzleSync.hpp"
+#include "slic3r/GUI/AccentColor.hpp"
 
 #include "../GUI.hpp"
 #include "../GUI_App.hpp"
@@ -584,7 +585,7 @@ void HotEndTable::MarkRelatedItems(const NozzleOption& option)
     );
 
     const static StateColor bd_green(
-        std::pair<wxColour, int>(wxColour("#767676"), StateColor::Normal)
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal)
     );
     auto filtered_nozzles = FilterHotEnds(option);
     for (auto nozzle_id : filtered_nozzles) {
@@ -917,9 +918,9 @@ Slic3r::GUI::MultiNozzleSyncDialog::MultiNozzleSyncDialog(wxWindow* parent,std::
 
     StateColor btn_bg_green(
         std::pair<wxColour, int>(wxColour(144, 144, 144), StateColor::Disabled),
-        std::pair<wxColour, int>(wxColour("#5C5C5C"), StateColor::Pressed),
-        std::pair<wxColour, int>(wxColour("#888888"), StateColor::Hovered),
-        std::pair<wxColour, int>(wxColour(118, 118, 118), StateColor::Normal)
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::pressed(), StateColor::Pressed),
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::hover(), StateColor::Hovered),
+        std::pair<wxColour, int>(Slic3r::GUI::Accent::base(), StateColor::Normal)
     );
 
     StateColor btn_text_green(

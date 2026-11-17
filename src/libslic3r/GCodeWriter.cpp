@@ -34,6 +34,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <math.h>
+#include <Eigen/Core>
 #include <memory>
 
 #ifdef __APPLE__
@@ -1027,6 +1028,83 @@ std::string GCodeWriter::eager_lift(const LiftType type) {
     return lift_move;
 }
 
+// Stock Orca 2.5.0 handling of a pending lift in travel_to_xyz(), for planar frames.
+std::string GCodeWriter::_travel_lifted_planar(Vec3d dest_point, double travel_speed, const std::string &comment)
+{
+    assert(std::abs(m_lifted) < EPSILON);
+    //BBS: don't need to do real lift if the current position is absolutely same with target.
+    //This ususally happens when the last extrusion line is short and the end of wipe position
+    //is same with the traget point by chance.
+    if ((!this->is_current_position_clear() || m_pos != dest_point) &&
+        m_to_lift + m_pos(2) > dest_point(2)) {
+        m_lifted = m_to_lift + m_pos(2) - dest_point(2);
+        dest_point(2) = m_to_lift + m_pos(2);
+    }
+    m_to_lift = 0.;
+
+    std::string slop_move;
+    //BBS: minus plate offset
+    Vec3d source = { m_pos(0) - m_x_offset, m_pos(1) - m_y_offset, m_pos(2) };
+    Vec3d target = { dest_point(0) - m_x_offset, dest_point(1) - m_y_offset, dest_point(2) };
+    Vec3d delta = target - source;
+    Vec2d delta_no_z = { delta(0), delta(1) };
+    //BBS: don'need slope travel because we don't know where is the source position the first time
+    //BBS: Also don't need to do slope move or spiral lift if x-y distance is absolute zero
+    if (delta(2) > 0 && delta_no_z.norm() != 0.0f) {
+        //BBS: SpiralLift
+        if (m_to_lift_type == LiftType::SpiralLift && this->is_current_position_clear()) {
+            double radius = delta(2) / (2 * PI * atan(this->filament()->travel_slope()));
+            Vec2d ij_offset = radius * delta_no_z.normalized();
+            ij_offset = { -ij_offset(1), ij_offset(0) };
+            // Orca: only spiral if the full circle stays inside the printable area.
+            const Vec2d spiral_center = { source.x() + ij_offset.x(), source.y() + ij_offset.y() };
+            if (this->spiral_lift_fits_printable_area(spiral_center, radius))
+                slop_move = this->_spiral_travel_to_z(target(2), ij_offset, "spiral lift Z");
+            else
+                slop_move = _travel_to_z(target.z(), "normal lift Z");
+        }
+        //BBS: SlopeLift
+        else if (m_to_lift_type == LiftType::SlopeLift &&
+            this->is_current_position_clear() &&
+            atan2(delta(2), delta_no_z.norm()) < this->filament()->travel_slope()) {
+            Vec2d temp = delta_no_z.normalized() * delta(2) / tan(this->filament()->travel_slope());
+            Vec3d slope_top_point = Vec3d(temp(0), temp(1), delta(2)) + source;
+            GCodeG1Formatter w0(config.high_precision_gcode.value);
+            w0.emit_xyz(has_axis_remap() ? apply_axis_remap(slope_top_point) : slope_top_point);
+            w0.emit_f(travel_speed * 60.0);
+            w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
+            slop_move = w0.string();
+        }
+        else if (m_to_lift_type == LiftType::NormalLift && ! this->must_skip_lift_now()) {
+            slop_move = _travel_to_z(target.z(), "normal lift Z");
+        }
+    }
+
+    std::string xy_z_move;
+    {
+        GCodeG1Formatter w0(config.high_precision_gcode.value);
+        if (has_axis_remap()) {
+            w0.emit_xyz(apply_axis_remap(target));
+            w0.emit_f(travel_speed * 60.0);
+            w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
+            xy_z_move = w0.string();
+        } else if (this->is_current_position_clear()) {
+            w0.emit_xyz(target);
+            w0.emit_f(travel_speed * 60.0);
+            w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
+            xy_z_move = w0.string();
+        } else {
+            w0.emit_xy(Vec2d(target.x(), target.y()));
+            w0.emit_f(travel_speed * 60.0);
+            w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
+            xy_z_move = w0.string() + _travel_to_z(target.z(), comment);
+        }
+    }
+    m_pos = dest_point;
+    this->set_current_position_clear(true);
+    return slop_move + xy_z_move;
+}
+
 std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &comment, bool force_z, Transform3d trafo)
 {
     // FIXME: This function was not being used when travel_speed_z was separated (bd6badf).
@@ -1048,12 +1126,11 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         //BBS: don't need to do real lift if the current position is absolutely same with target.
         //This ususally happens when the last extrusion line is short and the end of wipe position
         //is same with the traget point by chance.
-        //UNLAYERED_MOD
-        /*if ((!this->is_current_position_clear() || m_pos != dest_point) &&
-            m_to_lift + m_pos(2) > point(2)) {
-            m_lifted = m_to_lift + m_pos(2) - point(2);
-            dest_point(2) = m_to_lift + m_pos(2);
-        }*/
+        // UNLAYERED_MOD: the hop-along-the-normal travel below is only for non-planar printing.
+        // Ordinary prints keep stock Orca's lift: spiral/slope/normal per z_hop_types, travel at
+        // the lifted height, and m_lifted kept for the later unlift.
+        if (! m_nonplanar && trafo.linear().isApprox(Eigen::Matrix3d::Identity()))
+            return this->_travel_lifted_planar(dest_point, travel_speed, comment);
         Vec3d liftVec = {0, 0, m_to_lift};
 
         liftVec = trafo.rotation() * liftVec;
