@@ -2,7 +2,7 @@
 #define slic3r_Auxiliary_hpp_
 
 #include "Tabbook.hpp"
-#include "slic3r/GUI/AccentColor.hpp"
+#include "slic3r/GUI/AccentColor.hpp" // IWYU pragma: keep (used by colour macros)
 #include <array>
 #include "slic3r/GUI/Widgets/TextInput.hpp"
 #include <boost/filesystem/path.hpp>

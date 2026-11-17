@@ -1,5 +1,6 @@
 #include "MultiTaskManagerPage.hpp"
 #include "slic3r/GUI/AccentColor.hpp"
+#include "Widgets/StateColor.hpp"
 #include "I18N.hpp"
 
 #include "GUI_App.hpp"

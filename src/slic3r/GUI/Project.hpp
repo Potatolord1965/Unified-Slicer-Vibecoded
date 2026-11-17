@@ -2,7 +2,7 @@
 #define slic3r_Project_hpp_
 
 #include "wx/artprov.h"
-#include "slic3r/GUI/AccentColor.hpp"
+#include "slic3r/GUI/AccentColor.hpp" // IWYU pragma: keep (used by colour macros)
 #include "wx/cmdline.h"
 #include "wx/notifmsg.h"
 #include "wx/settings.h"

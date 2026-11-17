@@ -2,7 +2,7 @@
 #define slic3r_GUI_AMSITEM_hpp_
 
 #include "../wxExtensions.hpp"
-#include "slic3r/GUI/AccentColor.hpp"
+#include "slic3r/GUI/AccentColor.hpp" // IWYU pragma: keep (used by colour macros)
 #include "StaticBox.hpp"
 #include "StepCtrl.hpp"
 #include "Button.hpp"

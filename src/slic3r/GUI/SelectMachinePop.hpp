@@ -2,7 +2,7 @@
 #define slic3r_GUI_SelectMachinePop_hpp_
 
 #include <wx/event.h>
-#include "slic3r/GUI/AccentColor.hpp"
+#include "slic3r/GUI/AccentColor.hpp" // IWYU pragma: keep (used by colour macros)
 #include <wx/dc.h>
 #include <cstddef>
 #include "slic3r/GUI/Widgets/HyperLink.hpp"

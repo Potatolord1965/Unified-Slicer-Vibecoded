@@ -3,6 +3,7 @@
 #include <string>
 #include <wx/translation.h>
 #include <wx/strconv.h>
+#include <wx/defs.h>
 #include "libslic3r_version.h"
 
 namespace Slic3r { namespace GUI { 

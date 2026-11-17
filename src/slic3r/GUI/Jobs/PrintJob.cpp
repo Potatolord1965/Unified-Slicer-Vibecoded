@@ -37,6 +37,7 @@
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/Jobs/SendJob.hpp"
 #include <boost/filesystem.hpp>
+#include <boost/filesystem/directory.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/nowide/fstream.hpp>
