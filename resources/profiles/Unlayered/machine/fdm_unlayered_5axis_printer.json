@@ -9,7 +9,7 @@
 		"60"
 	],
 	"extruder_clearance_radius": "40",
-	"host_type": "unlayered",
+	"host_type": "duet",
 	"layer_change_gcode": ";AFTER_LAYER_CHANGE\n;[layer_z]\n;m98 p\"timelapse.g\"",
 	"machine_end_gcode": "{if !virtual_5axis}M564 S0\nG1 X133 Y-97 Z140 B-120 C0 F5000\nG1 X133 Y-97 Z100 B-120 C0 F5000\n{endif}",
 	"machine_max_acceleration_extruding": [
