@@ -864,8 +864,6 @@ jobs:
 
       - name: Drop older compiler cache entries
         if: ${{ always() && steps.ccache_save.outcome == 'success' }}
-        # Housekeeping only: a token that may not delete caches must not fail the build.
-        continue-on-error: true
         # A read-only token (fork PRs) cannot delete; that only costs storage.
         # Older means a lower run id, so two runs finishing close together keep
         # the newer entry whichever of them cleans up last.
