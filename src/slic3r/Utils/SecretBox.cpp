@@ -1,5 +1,6 @@
 #include "SecretBox.hpp"
 
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 
