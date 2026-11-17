@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include <exception>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/log/trivial.hpp>
@@ -543,6 +544,17 @@ private:
     }
 
     void on_script_message(wxWebViewEvent& evt)
+    {
+        // A page can send any JSON; a field of the wrong type makes json::value() throw, which
+        // must not reach the event loop and end the app.
+        try {
+            handle_script_message(evt);
+        } catch (const std::exception& e) {
+            BOOST_LOG_TRIVIAL(warning) << "Elegoo cloud page: malformed page message ignored: " << e.what();
+        }
+    }
+
+    void handle_script_message(wxWebViewEvent& evt)
     {
         const json msg = json::parse(evt.GetString().ToUTF8().data(), nullptr, false);
         if (!msg.is_object() || msg.value("type", "request") != "request")

@@ -238,11 +238,16 @@ size_t clip_supports_to_neighbours(Print &print, const std::function<void()> &th
             const double             gap_xy_first = std::max(gap_xy, cfg.support_object_first_layer_gap.value);
             const double             gap_above    = cfg.support_bottom_z_distance.value;   // support resting on a neighbour
             const double             gap_below    = cfg.support_top_z_distance.value;      // support touching a neighbour's underside
+            // The raft lies below every object's own first layer; neighbours stand on their own rafts
+            // there, so a raft is left whole, as in stock Orca.
+            const double             raft_top     = owner->slicing_parameters().has_raft() ? owner->slicing_parameters().object_print_z_min : 0.;
             tbb::parallel_for(tbb::blocked_range<size_t>(0, support_layers.size()), [&](const tbb::blocked_range<size_t> &range) {
                 for (size_t i = range.begin(); i < range.end(); ++ i) {
                     throw_if_canceled();
                     SupportLayer &sl = *support_layers[i];
                     if (sl.support_fills.entities.empty() && sl.support_islands.empty())
+                        continue;
+                    if (sl.print_z <= raft_top + EPSILON)
                         continue;
                     const double top    = sl.print_z;
                     const double bottom = sl.print_z - sl.height;

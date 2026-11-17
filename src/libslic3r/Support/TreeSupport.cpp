@@ -3187,11 +3187,10 @@ void TreeSupport::drop_nodes()
                         node_parent->support_roof_layers_below - (node_parent->distance_to_top >= 0 ? 1 : 0),
                         to_buildplate, node_parent, print_z_next, height_next);
                     get_max_move_dist(next_node);
-                    m_ts_data->m_mutex.lock();
+                    std::scoped_lock lock(m_ts_data->m_mutex);
                     contact_nodes[layer_nr_next].push_back(next_node);
                     neighbour->valid = false;
                     p_node->valid = false;
-                    m_ts_data->m_mutex.unlock();
                 }
                 else if (neighbours.size() > 1) //Don't merge leaf nodes because we would then incur movement greater than the maximum move distance.
                 {

@@ -93,7 +93,7 @@ static bool contour_extrusion_path(LayerRegion *region, const ContourZSurface &s
 	
 	Layer *layer = region->layer();
 	coordf_t mesh_slice_z = layer->slice_z + surface.mesh.ground_level();
-    BOOST_LOG_TRIVIAL(info) << "contour_extrusion_path: mesh_slice_z=" << mesh_slice_z << " ground_level=" << surface.mesh.ground_level();
+    BOOST_LOG_TRIVIAL(trace) << "contour_extrusion_path: mesh_slice_z=" << mesh_slice_z << " ground_level=" << surface.mesh.ground_level();
 
 	coordf_t min_z = region->region().config().zaa_min_z;
 

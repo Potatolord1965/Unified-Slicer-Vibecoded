@@ -65,6 +65,7 @@ private:
 
     void on_webview_event(wxWebViewEvent& evt);
     void on_script_message(const std::string& body);
+    void handle_script_message(const std::string& body);
     void run_script(const wxString& script);
 
     // MakerWorld: page commands go to the app's homepage command handler.

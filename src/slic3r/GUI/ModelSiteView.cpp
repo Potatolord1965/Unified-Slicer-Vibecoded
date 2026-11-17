@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include <exception>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/log/trivial.hpp>
@@ -696,6 +697,17 @@ void ModelSiteView::on_webview_event(wxWebViewEvent& evt)
 }
 
 void ModelSiteView::on_script_message(const std::string& body)
+{
+    // A page can send any JSON; a field of the wrong type makes json::value() throw, which must
+    // not reach the event loop and end the app.
+    try {
+        handle_script_message(body);
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(warning) << "Model site: malformed page message ignored: " << e.what();
+    }
+}
+
+void ModelSiteView::handle_script_message(const std::string& body)
 {
     // The pane browses the whole web; each protocol answers its own site only.
     const wxString page = m_browser != nullptr ? m_browser->GetCurrentURL() : wxString();

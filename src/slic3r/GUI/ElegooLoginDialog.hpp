@@ -28,6 +28,7 @@ protected:
 
 private:
     void on_script_message(wxWebViewEvent& evt);
+    void handle_script_message(wxWebViewEvent& evt);
     void respond(const wxString& id, const wxString& method, bool ok, const wxString& message);
     void load_page();
     static std::string device_id();

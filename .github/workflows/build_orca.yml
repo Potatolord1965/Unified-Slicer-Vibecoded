@@ -678,7 +678,8 @@ jobs:
           content_type: application/x-msdownload
 
       - name: Build MSIX Store package Win
-        if: runner.os == 'Windows' && !vars.SELF_HOSTED
+        # Orca's Store package: off unless a Store identity is configured.
+        if: runner.os == 'Windows' && !vars.SELF_HOSTED && vars.ORCA_MSIX_IDENTITY_NAME != ''
         working-directory: ${{ github.workspace }}
         shell: pwsh
         run: |
@@ -691,7 +692,8 @@ jobs:
             -PublisherDisplayName "${{ vars.ORCA_MSIX_PUBLISHER_DISPLAY_NAME || 'OrcaSlicer' }}"
 
       - name: Upload artifacts Win MSIX
-        if: runner.os == 'Windows' && !vars.SELF_HOSTED
+        # Orca's Store package: off unless a Store identity is configured.
+        if: runner.os == 'Windows' && !vars.SELF_HOSTED && vars.ORCA_MSIX_IDENTITY_NAME != ''
         uses: actions/upload-artifact@v7
         with:
           name: OrcaSlicer_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}
@@ -713,7 +715,7 @@ jobs:
           ./build_linux.sh -istrlL
           ./scripts/check_appimage_libs.sh ./build/package ./build/package/bin/orca-slicer
           appimage=./build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage
-          mv -n ./build/OrcaSlicer_Linux_V${{ env.ver_pure }}.AppImage "$appimage"
+          mv -n ./build/*_Linux_V${{ env.ver_pure }}.AppImage "$appimage"
           chmod +x "$appimage"
           tar -cvf build_tests.tar build/tests
 
@@ -862,6 +864,8 @@ jobs:
 
       - name: Drop older compiler cache entries
         if: ${{ always() && steps.ccache_save.outcome == 'success' }}
+        # Housekeeping only: a token that may not delete caches must not fail the build.
+        continue-on-error: true
         # A read-only token (fork PRs) cannot delete; that only costs storage.
         # Older means a lower run id, so two runs finishing close together keep
         # the newer entry whichever of them cleans up last.

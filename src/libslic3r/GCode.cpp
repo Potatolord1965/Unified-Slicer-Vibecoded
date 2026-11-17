@@ -2573,13 +2573,11 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
 
         // Check that there are extrusions on the very first layer. The case with empty
         // first layer may result in skirt/brim in the air and maybe other issues.
-        // UNLAYERED_MOD: upstream's hard error for an empty FIRST layer stays disabled -- a tilted legacy
-        // chunk or a cut-plane segment can legitimately start with an empty layer (segments strip their
-        // leading empty layers). The gap check below is upstream's, restored: it had been commented out
-        // together with the last_extrusion_layer update, which left that pointer permanently null and
-        // made every layer above ~0.4 mm report an "empty layer between 0 and z" gap -- a CRITICAL
-        // warning on essentially every print.
-        // if (layers_to_print.size() == 1u && !has_extrusions) throw Slic3r::SlicingError(...);
+        // UNLAYERED_MOD: with non-planar printing on, a tilted legacy chunk or a cut-plane segment can
+        // legitimately start with an empty layer (segments strip their leading empty layers), so the
+        // error is only raised for ordinary prints.
+        if (layers_to_print.size() == 1u && !has_extrusions && !object.print()->config().enable_nonplanar.value)
+            throw Slic3r::SlicingError(_(L("One object has an empty first layer and can't be printed. Please Cut the bottom or enable supports.")), object.id().id);
 
         // In case there are extrusions on this layer, check there is a layer to lay it on.
         if ((layer_to_print.object_layer && layer_to_print.object_layer->has_extrusions())
@@ -9541,6 +9539,9 @@ std::string GCode::extrude_loop(const ExtrusionLoop &loop_ref, const std::string
     // if polyline was shorter than the clipping distance we'd get a null polyline, so
     // we discard it in that case
     const double seam_gap = scale_(m_config.seam_gap.get_abs_value(nozzle_diameter));
+    const bool seam_gap_applied = enable_seam_slope || m_enable_loop_clipping;
+    const double seam_gap_distance_mm = seam_gap_applied ? unscale_(seam_gap) : 0.0;
+    double seam_scarf_distance_mm = 0.0;
     const double clip_length = m_enable_loop_clipping && !enable_seam_slope ? seam_gap : 0;
 
     // get paths
@@ -9689,6 +9690,7 @@ std::string GCode::extrude_loop(const ExtrusionLoop &loop_ref, const std::string
         const double slope_min_length         = slope_entire_loop ? loop_length : std::min(m_config.seam_slope_min_length.value, loop_length);
         const int    slope_steps              = m_config.seam_slope_steps;
         const double slope_max_segment_length = scale_(slope_min_length / slope_steps);
+        seam_scarf_distance_mm = slope_min_length;
 
         // Calculate the sloped loop
         ExtrusionLoopSloped new_loop(paths, seam_gap, slope_min_length, slope_max_segment_length, start_slope_ratio, loop.loop_role());
@@ -9711,6 +9713,11 @@ std::string GCode::extrude_loop(const ExtrusionLoop &loop_ref, const std::string
             paths.insert(paths.end(), new_loop.paths.begin(), new_loop.paths.end());
             paths.insert(paths.end(), new_loop.ends.begin(), new_loop.ends.end());
         }
+    }
+
+    if (description == "perimeter") {
+        m_processor.result().print_statistics.total_seam_gap_distance += static_cast<float>(seam_gap_distance_mm);
+        m_processor.result().print_statistics.total_seam_scarf_distance += static_cast<float>(seam_scarf_distance_mm);
     }
 
     // Orca: share the post-extrusion nozzle position between wipe_inward and wipe_on_loops.
@@ -10029,7 +10036,9 @@ std::string GCode::extrude_support(const ExtrusionEntityCollection &support_fill
             return gcode;
 
         std::vector<std::unique_ptr<ExtrusionEntity>> reversed;
-        chain_and_reorder_extrusion_entities(extrusions, m_last_pos.to_point(), reversed);
+        //ORCA: Respect no_sort to preserve support base outline->fill order.
+        if (!support_fills.no_sort)
+            chain_and_reorder_extrusion_entities(extrusions, m_last_pos.to_point(), reversed);
 
         for (const ExtrusionEntity *ee : extrusions) {
             ExtrusionRole role = ee->role();
@@ -10612,11 +10621,13 @@ std::string GCode::_extrude(const ExtrusionPath &path, const std::string &path_d
         gcode += this->travel_to(first_point, path.role(), "move to first " + description + " point", z, trafo);
 
         // Orca: ensure Z matches planned layer height
-        //if (!slope_need_z_travel && (_last_pos_undefined || m_need_change_layer_lift_z)) {
-        //    const std::string z_sync_comment = _last_pos_undefined ?
-        //        "ensure Z matches planned layer height" : ""; // no comment for normal layer-Z lift
-        //    gcode += this->writer().travel_to_z(m_nominal_z, z_sync_comment, true);
-        //}
+        // UNLAYERED_MOD: ordinary prints only; with non-planar printing the travel above already
+        // targets the path's own (contoured or tilted) Z.
+        if (!m_config.enable_nonplanar.value && !slope_need_z_travel && (_last_pos_undefined || m_need_change_layer_lift_z)) {
+            const std::string z_sync_comment = _last_pos_undefined ?
+                "ensure Z matches planned layer height" : ""; // no comment for normal layer-Z lift
+            gcode += this->writer().travel_to_z(m_nominal_z, z_sync_comment, true);
+        }
         m_need_change_layer_lift_z = false;
     }
 
@@ -10631,21 +10642,25 @@ std::string GCode::_extrude(const ExtrusionPath &path, const std::string &path_d
         }
     }
 
-    /*if (path.z_contoured && !path.polyline.lines().empty()) {
-        double current_z = m_writer.get_position().z();
-        double first_z = unscale_(path.polyline.lines().begin()->a.z()) + m_nominal_z;
-        if (GCodeFormatter::quantize_xyz(first_z, m_config.high_precision_gcode.value) !=
-            GCodeFormatter::quantize_xyz(current_z, m_config.high_precision_gcode.value)) {
-            gcode += m_writer.travel_to_z(first_z, "set Z for contouring", true);
+    // UNLAYERED_MOD: Orca's contouring Z set/reset, for ordinary prints only (non-planar paths carry
+    // their own Z in the travel above).
+    if (!m_config.enable_nonplanar.value) {
+        if (path.z_contoured && !path.polyline.lines().empty()) {
+            double current_z = m_writer.get_position().z();
+            double first_z = unscale_(path.polyline.lines().begin()->a.z()) + m_nominal_z;
+            if (GCodeFormatter::quantize_xyz(first_z, m_config.high_precision_gcode.value) !=
+                GCodeFormatter::quantize_xyz(current_z, m_config.high_precision_gcode.value)) {
+                gcode += m_writer.travel_to_z(first_z, "set Z for contouring", true);
+            }
+        }
+        if (!path.z_contoured && sloped == nullptr) {
+            double current_z = m_writer.get_position().z();
+            if (GCodeFormatter::quantize_xyz(current_z, m_config.high_precision_gcode.value) !=
+                GCodeFormatter::quantize_xyz(m_nominal_z, m_config.high_precision_gcode.value)) {
+                gcode += this->writer().travel_to_z(m_nominal_z, "reset Z after contouring", true);
+            }
         }
     }
-    if (!path.z_contoured && sloped == nullptr) {
-        double current_z = m_writer.get_position().z();
-        if (GCodeFormatter::quantize_xyz(current_z, m_config.high_precision_gcode.value) !=
-            GCodeFormatter::quantize_xyz(m_nominal_z, m_config.high_precision_gcode.value)) {
-            gcode += this->writer().travel_to_z(m_nominal_z, "reset Z after contouring", true);
-        }
-    }*/
 
     // if needed, write the gcode_label_objects_end then gcode_label_objects_start
     // should be already done by travel_to, but just in case
