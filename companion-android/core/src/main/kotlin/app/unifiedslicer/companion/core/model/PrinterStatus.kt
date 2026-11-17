@@ -38,6 +38,10 @@ data class PrinterStatus(
     val chamber: Temperature? = null,
     /** Printer-side alert, e.g. an error code. */
     val alert: String? = null,
+    /** Chamber light, where the printer reports it. */
+    val light: Boolean? = null,
+    /** Bambu speed level 1..4. */
+    val speedLevel: Int? = null,
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
     val key: String get() = "$accountId/$deviceId"

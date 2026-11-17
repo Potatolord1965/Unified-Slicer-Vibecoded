@@ -1,5 +1,11 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
+import app.unifiedslicer.companion.core.camera.CameraCapable
+import app.unifiedslicer.companion.core.camera.CameraFeed
+import app.unifiedslicer.companion.core.net.jsonBody
+import app.unifiedslicer.companion.core.net.int
 import app.unifiedslicer.companion.core.model.LanPrinter
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -20,7 +26,7 @@ import app.unifiedslicer.companion.core.source.SourceContext
 import kotlinx.serialization.json.JsonElement
 
 /** Prusa printers through PrusaLink's v1 API. */
-class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable {
+class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable {
     override val via = "LAN · PrusaLink"
 
     override suspend fun read(): PrinterStatus {
@@ -46,6 +52,20 @@ class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
         ctx.http.forUploads().fetchText(req)
         progress.update(100, "Print started")
     }
+
+    override suspend fun control(deviceId: String, command: PrinterCommand) {
+        val id = get("/api/v1/status").obj("job").int("id") ?: throw java.io.IOException("The printer has no print job")
+        val req = when (command) {
+            PrinterCommand.Pause -> request("/api/v1/job/$id/pause").put(jsonBody(""))
+            PrinterCommand.Resume -> request("/api/v1/job/$id/resume").put(jsonBody(""))
+            PrinterCommand.Stop -> request("/api/v1/job/$id").delete()
+            else -> throw java.io.IOException("Not available on PrusaLink from this app")
+        }
+        ctx.http.fetchText(req.build())
+    }
+
+    override suspend fun camera(deviceId: String): CameraFeed =
+        CameraFeed.Http(resolve("/api/v1/cameras/snap"), if (account.secret.isBlank()) emptyMap() else mapOf("X-Api-Key" to account.secret.trim()))
 
     fun parse(s: JsonElement, file: JsonElement?): PrinterStatus {
         val p = s.obj("printer")

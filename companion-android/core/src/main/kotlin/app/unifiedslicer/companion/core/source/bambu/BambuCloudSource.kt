@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.bambu
 
+import app.unifiedslicer.companion.core.source.Controllable
+import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.model.BambuAccount
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.PrinterState
@@ -24,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Bambu Cloud: the account's bound printers from the REST API, live status from Bambu's MQTT
  * broker (user "u_<uid>", password = access token, topic device/<serial>/report).
  */
-class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : PrinterSource {
+class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : PrinterSource, Controllable {
     override var account: BambuAccount = account
         private set
 
@@ -34,6 +36,7 @@ class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : 
     private var devicesAt = 0L
     private var link: MqttLink? = null
     private var linkSerials: Set<String> = emptySet()
+    private val commands = BambuCommands()
     private val reports = ConcurrentHashMap<String, Pair<JsonObject, Long>>()
 
     override suspend fun refresh(): List<PrinterStatus> {
@@ -80,7 +83,10 @@ class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : 
 
     private fun onMessage(topic: String, payload: String) {
         val serial = topic.removePrefix("device/").substringBefore('/')
-        val print = parseJson(payload).obj("print") ?: return
+        val message = parseJson(payload)
+        commands.onReport(message)
+        val print = message.obj("print") ?: return
+        if (print.str("command") == "gcode_line") return // only an answer to one of our commands
         val merged = reports[serial]?.first?.let { mergeJson(it, print) } ?: print
         reports[serial] = merged to System.currentTimeMillis()
     }
@@ -110,6 +116,11 @@ class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : 
         ctx.onAccountUpdated(account)
         link?.close(); link = null
         block()
+    }
+
+    override suspend fun control(deviceId: String, command: PrinterCommand) {
+        withRenewal { connectLink() }
+        commands.send(link ?: throw java.io.IOException("Not connected to Bambu's cloud"), deviceId, command)
     }
 
     override fun close() {

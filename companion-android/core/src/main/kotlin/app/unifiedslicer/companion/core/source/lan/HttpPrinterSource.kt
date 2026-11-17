@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.net.fetchText
+import app.unifiedslicer.companion.core.net.jsonBody
 import app.unifiedslicer.companion.core.model.LanPrinter
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -32,6 +34,22 @@ abstract class HttpPrinterSource(final override val account: LanPrinter, protect
         val b = Request.Builder().url(base + path)
         if (account.secret.isNotBlank()) b.header("X-Api-Key", account.secret.trim())
         return b
+    }
+
+    /** POSTs [json] (or nothing) to [path]; throws on an HTTP error. */
+    protected suspend fun post(path: String, json: String? = null) {
+        try {
+            ctx.http.fetchText(request(path).post(jsonBody(json ?: "{}")).build())
+        } catch (e: HttpException) {
+            if (e.code == 409) throw IOException("The printer cannot do that right now") else throw e
+        }
+    }
+
+    /** [url] as an absolute address; relative ones are on the printer. */
+    protected fun resolve(url: String): String = when {
+        url.startsWith("http://") || url.startsWith("https://") -> url
+        url.startsWith("/") -> base.trimEnd('/') + url
+        else -> base.trimEnd('/') + "/" + url
     }
 
     protected fun status(state: PrinterState) =

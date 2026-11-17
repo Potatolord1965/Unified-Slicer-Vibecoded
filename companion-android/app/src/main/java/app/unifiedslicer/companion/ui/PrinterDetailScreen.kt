@@ -25,6 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
@@ -35,13 +39,23 @@ import androidx.compose.ui.unit.sp
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.model.Temperature
+import app.unifiedslicer.companion.core.source.Control
+import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.ui.theme.LocalStudio
 import app.unifiedslicer.companion.ui.theme.NumberStyle
 import app.unifiedslicer.companion.ui.theme.color
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PrinterDetailScreen(p: PrinterStatus?, onBack: () -> Unit) {
+fun PrinterDetailScreen(
+    p: PrinterStatus?,
+    controls: Set<Control> = emptySet(),
+    /** Sends a command; returns why it failed, or null. */
+    onCommand: suspend (PrinterCommand) -> String? = { null },
+    /** The camera panel, for printers that have one. */
+    camera: (@Composable () -> Unit)? = null,
+    onBack: () -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -96,12 +110,33 @@ fun PrinterDetailScreen(p: PrinterStatus?, onBack: () -> Unit) {
             p.alert?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = LocalStudio.current.bad) }
             Spacer(Modifier.height(20.dp))
 
+            val commands = rememberCommandRunner(p.key, onCommand)
+            JobControls(p, controls, accent, commands)
+            if (camera != null) {
+                camera()
+                Spacer(Modifier.height(10.dp))
+            }
+            val offline = p.state == PrinterState.OFFLINE
+            var editing by remember { mutableStateOf<Control?>(null) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TempTile("Nozzle", p.nozzle, Modifier.weight(1f))
-                TempTile("Bed", p.bed, Modifier.weight(1f))
-                if (p.chamber != null) TempTile("Chamber", p.chamber, Modifier.weight(1f))
+                TempTile("Nozzle", p.nozzle, Modifier.weight(1f), { editing = Control.NOZZLE_TEMP }.takeIf { Control.NOZZLE_TEMP in controls && !offline })
+                TempTile("Bed", p.bed, Modifier.weight(1f), { editing = Control.BED_TEMP }.takeIf { Control.BED_TEMP in controls && !offline })
+                if (p.chamber != null) TempTile("Chamber", p.chamber, Modifier.weight(1f), null)
+            }
+            editing?.let { which ->
+                val nozzle = which == Control.NOZZLE_TEMP
+                TemperatureDialog(
+                    title = if (nozzle) "Nozzle temperature" else "Bed temperature",
+                    current = (if (nozzle) p.nozzle else p.bed)?.target?.toInt(),
+                    max = if (nozzle) 320 else 120,
+                    onDismiss = { editing = null },
+                ) { celsius ->
+                    editing = null
+                    commands.run(if (nozzle) PrinterCommand.SetNozzle(celsius) else PrinterCommand.SetBed(celsius))
+                }
             }
             Spacer(Modifier.height(10.dp))
+            DeviceControls(p, controls, accent, commands)
             Panel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     if (p.layer != null && p.totalLayers != null) InfoRow("Layer", "${p.layer} / ${p.totalLayers}")
@@ -117,13 +152,14 @@ fun PrinterDetailScreen(p: PrinterStatus?, onBack: () -> Unit) {
 }
 
 @Composable
-private fun TempTile(label: String, t: Temperature?, modifier: Modifier) {
-    Panel(modifier) {
+private fun TempTile(label: String, t: Temperature?, modifier: Modifier, onEdit: (() -> Unit)?) {
+    Panel(modifier, onClick = onEdit) {
         Column(Modifier.padding(14.dp)) {
             Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = LocalStudio.current.muted)
             Spacer(Modifier.height(6.dp))
             Text(t?.let { "${it.current.toInt()}°" } ?: "–", style = MaterialTheme.typography.titleLarge.merge(NumberStyle))
-            t?.target?.let { Text("target ${it.toInt()}°", style = MaterialTheme.typography.bodySmall, color = LocalStudio.current.muted) }
+            val target = t?.target?.let { "target ${it.toInt()}°" } ?: "tap to set".takeIf { onEdit != null }
+            target?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = LocalStudio.current.muted) }
         }
     }
 }
