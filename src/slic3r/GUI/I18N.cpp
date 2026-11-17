@@ -23,7 +23,7 @@ wxString keep_translation(const wxString &msgid, const wxString &translated, con
 	if (translated != msgid || msgid.Find(app_name) == wxNOT_FOUND)
 		return translated;
 	// The upstream wordings of the app name, most specific first.
-	for (const wxString orca : {wxString("Orca Slicer"), wxString("OrcaSlicer"), wxString("Orca")}) {
+	for (const wxString &orca : {wxString("Orca Slicer"), wxString("OrcaSlicer"), wxString("Orca")}) {
 		wxString original = msgid;
 		original.Replace(app_name, orca);
 		const wxString found = context.empty() ? wxGetTranslation(original) : wxGetTranslation(original, wxEmptyString, context);
