@@ -15,6 +15,7 @@
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/MainFrame.hpp"
 #include "slic3r/GUI/ModelSiteView.hpp"
+#include "slic3r/GUI/PhoneSignInDialog.hpp"
 #include "slic3r/GUI/WebViewDialog.hpp"
 #include "slic3r/GUI/format.hpp"
 #include "slic3r/GUI/Widgets/Button.hpp"
@@ -76,9 +77,21 @@ AccountsPanel::AccountsPanel(wxWindow* parent)
     CloudPrinterProviders::register_builtin();
 
     auto* outer = new wxBoxSizer(wxVERTICAL);
-    auto* title = new wxStaticText(this, wxID_ANY, _L("Accounts"));
+    auto* header = new wxBoxSizer(wxHORIZONTAL);
+    auto* title  = new wxStaticText(this, wxID_ANY, _L("Accounts"));
     title->SetFont(Label::Head_18);
-    outer->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(24));
+    header->Add(title, 0, wxALIGN_CENTER_VERTICAL);
+    header->AddStretchSpacer();
+    // Signs the Unified Monitor phone app in to the same printer services with one QR scan.
+    m_phone_button = new Button(this, _L("Sign in on phone"));
+    m_phone_button->SetMinSize(wxSize(FromDIP(100), -1));
+    m_phone_button->SetStyle(ButtonStyle::Regular, ButtonType::Window);
+    m_phone_button->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        PhoneSignInDialog dlg(this);
+        dlg.ShowModal();
+    });
+    header->Add(m_phone_button, 0, wxALIGN_CENTER_VERTICAL);
+    outer->Add(header, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(24));
     auto* intro = new wxStaticText(this, wxID_ANY, _L("Every account Unified Slicer signs in to. Each one is separate: signing out of one leaves the others signed in."));
     intro->SetFont(Label::Body_13);
     intro->SetForegroundColour(wxColour("#6B6B6B"));
@@ -319,6 +332,8 @@ void AccountsPanel::update_row(Row& row)
 
 void AccountsPanel::msw_rescale()
 {
+    m_phone_button->SetMinSize(wxSize(FromDIP(100), -1));
+    m_phone_button->Rescale();
     for (Row& row : m_rows) {
         row.button->SetMinSize(wxSize(FromDIP(100), -1));
         row.button->Rescale();

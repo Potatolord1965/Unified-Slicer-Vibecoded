@@ -164,6 +164,7 @@ src/slic3r/GUI/SelectMachinePop.cpp
 src/slic3r/GUI/StatusPanel.cpp
 src/slic3r/GUI/Monitor.cpp
 src/slic3r/GUI/AccountsPanel.cpp
+src/slic3r/GUI/PhoneSignInDialog.cpp
 src/slic3r/GUI/ModelSiteView.cpp
 src/slic3r/GUI/MsgDialog.cpp
 src/slic3r/GUI/NativeCommands.cpp

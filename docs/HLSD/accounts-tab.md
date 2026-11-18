@@ -20,3 +20,6 @@ only when its state changed. A change to the provider list rebuilds the rows.
 
 The brand colour of each printer service (`brand_colour()`) marks its row and colours its Sign in
 button, the same accent the Device tab's rail uses.
+
+**Sign in on phone** in the tab's header shows a QR code that signs the Unified Monitor phone app in to
+the same printer services; see [phone-sign-in.md](phone-sign-in.md).

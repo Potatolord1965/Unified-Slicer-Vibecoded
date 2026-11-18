@@ -14,8 +14,8 @@ android {
         applicationId = "app.unifiedslicer.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
         // The Elegoo messaging SDK ships native code; phones are ARM.
         ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
     }
@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.rtsp)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.zxing.embedded)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)

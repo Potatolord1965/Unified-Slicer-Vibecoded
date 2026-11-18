@@ -422,6 +422,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Mouse3DController.hpp
     GUI/AccountsPanel.cpp
     GUI/AccountsPanel.hpp
+    GUI/PhoneSignInDialog.cpp
+    GUI/PhoneSignInDialog.hpp
     GUI/ModelSiteView.cpp
     GUI/ModelSiteView.hpp
     GUI/MsgDialog.cpp
@@ -786,6 +788,8 @@ set(SLIC3R_GUI_SOURCES
     Utils/CrealityPrintAgent.cpp
     Utils/CrealityPrintAgent.hpp
     Utils/CrealityCloud.cpp
+    Utils/PhoneSignIn.cpp
+    Utils/PhoneSignIn.hpp
     Utils/SecretBox.cpp
     Utils/SecretBox.hpp
     Utils/CrealityCloud.hpp
@@ -1006,7 +1010,7 @@ else()
     set(_opengl_link_lib OpenGL::GL)
 endif()
 
-target_link_libraries(libslic3r_gui libslic3r cereal::cereal imgui imguizmo minilzo libvgcode md4c-html glad ${_opengl_link_lib} hidapi mdns ${wxWidgets_LIBRARIES} glfw libcurl OpenSSL::SSL OpenSSL::Crypto LibDataChannel::LibDataChannel noise::noise pybind11::embed)
+target_link_libraries(libslic3r_gui libslic3r cereal::cereal imgui imguizmo minilzo qrcodegen libvgcode md4c-html glad ${_opengl_link_lib} hidapi mdns ${wxWidgets_LIBRARIES} glfw libcurl OpenSSL::SSL OpenSSL::Crypto LibDataChannel::LibDataChannel noise::noise pybind11::embed)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Linux finds wxWidgets in module mode, whose include dirs and definitions

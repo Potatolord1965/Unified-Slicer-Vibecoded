@@ -68,6 +68,10 @@ import app.unifiedslicer.companion.core.model.MarkforgedAccount
 import app.unifiedslicer.companion.data.StatusWorker
 import app.unifiedslicer.companion.ui.add.AddScreen
 import app.unifiedslicer.companion.ui.add.BambuLoginScreen
+import app.unifiedslicer.companion.ui.add.ComputerSignInScreen
+import app.unifiedslicer.companion.core.handoff.mergeAccounts
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import app.unifiedslicer.companion.ui.add.CrealityLoginScreen
 import app.unifiedslicer.companion.ui.add.ElegooLoginScreen
 import app.unifiedslicer.companion.ui.add.LanPrinterScreen
@@ -84,7 +88,14 @@ private fun editRoute(a: Account) = when (a) {
 }
 
 @Composable
-fun CompanionNav(app: CompanionApp, dark: Boolean, openPrinter: String?, onPrinterOpened: () -> Unit) {
+fun CompanionNav(
+    app: CompanionApp,
+    dark: Boolean,
+    openPrinter: String?,
+    onPrinterOpened: () -> Unit,
+    openSignIn: String?,
+    onSignInOpened: () -> Unit,
+) {
     val nav = rememberNavController()
     val accounts by app.accounts.accounts.collectAsStateWithLifecycle()
     val snapshot by app.printers.snapshot.collectAsStateWithLifecycle()
@@ -117,6 +128,23 @@ fun CompanionNav(app: CompanionApp, dark: Boolean, openPrinter: String?, onPrint
             text = { Text(msg) },
             confirmButton = { TextButton(onClick = { pickError = null }) { Text("OK") } },
         )
+    }
+
+    // A Unified Slicer sign-in QR code: scanned here, or opened from the phone's own camera app.
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { nav.navigate("signin?code=" + Uri.encode(it)) { launchSingleTop = true } }
+    }
+    fun scan() = scanner.launch(
+        ScanOptions()
+            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            .setPrompt("Scan the code on your computer (Accounts > Sign in on phone)")
+            .setBeepEnabled(false),
+    )
+    LaunchedEffect(openSignIn) {
+        if (openSignIn != null) {
+            nav.navigate("signin?code=" + Uri.encode(openSignIn)) { launchSingleTop = true }
+            onSignInOpened()
+        }
     }
 
     LaunchedEffect(openPrinter) {
@@ -152,6 +180,7 @@ fun CompanionNav(app: CompanionApp, dark: Boolean, openPrinter: String?, onPrint
                     2 -> AccountsScreen(
                         accounts, snapshot,
                         onAdd = { nav.navigate("add") },
+                        onScan = { scan() },
                         onEdit = { nav.navigate(editRoute(it)) },
                         onRemove = { app.accounts.remove(it.id) },
                     )
@@ -194,7 +223,22 @@ fun CompanionNav(app: CompanionApp, dark: Boolean, openPrinter: String?, onPrint
                 },
             )
         }
-        composable("add") { AddScreen(onBack = { nav.popBackStack() }, onPick = { nav.navigate("add/$it") }) }
+        composable("add") { AddScreen(onBack = { nav.popBackStack() }, onPick = { nav.navigate("add/$it") }, onScan = { scan() }) }
+        composable("signin?code={code}", arguments = listOf(navArgument("code") { type = NavType.StringType; defaultValue = "" })) { e ->
+            ComputerSignInScreen(
+                codeText = e.arguments?.getString("code").orEmpty(),
+                http = app.http,
+                saved = accounts,
+                onBack = { nav.popBackStack() },
+                onScanAgain = { nav.popBackStack(); scan() },
+                onImport = { incoming ->
+                    mergeAccounts(app.accounts.accounts.value, incoming).forEach { app.accounts.add(it) }
+                    app.printers.refreshAsync()
+                    tab = 2
+                    nav.popBackStack("home", inclusive = false)
+                },
+            )
+        }
         composable("add/bambu?replace={replace}", arguments = replaceArg) { e ->
             BambuLoginScreen(app.http, e.arguments?.getString("replace"), { nav.popBackStack() }) { saved(it, nav) }
         }
