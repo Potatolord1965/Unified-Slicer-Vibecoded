@@ -61,6 +61,7 @@ private:
     void update_row(Row& row);
 
     wxBoxSizer*      m_list{nullptr};
+    Button*          m_phone_button{nullptr};
     std::vector<Row> m_rows;
     wxTimer          m_timer;
     int              m_listener{0};

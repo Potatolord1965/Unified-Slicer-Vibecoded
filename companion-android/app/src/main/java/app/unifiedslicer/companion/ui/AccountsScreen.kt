@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -47,6 +48,7 @@ fun AccountsScreen(
     accounts: List<Account>,
     snapshot: HubSnapshot?,
     onAdd: () -> Unit,
+    onScan: () -> Unit,
     onEdit: (Account) -> Unit,
     onRemove: (Account) -> Unit,
 ) {
@@ -66,7 +68,16 @@ fun AccountsScreen(
         if (lan.isNotEmpty()) item { SectionLabel("Local network") }
         items(lan, key = { it.id }) { a -> AccountRow(a, snapshot, problem = snapshot?.problems?.get(a.id), onEdit, { confirm = a }) }
         item {
-            OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
+            OutlinedButton(onClick = onScan, modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
+                Icon(Icons.Filled.QrCodeScanner, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Scan computer code")
+            }
+            Text(
+                "Signs in to every account Unified Slicer on your computer uses. Open Accounts there and click Sign in on phone.",
+                style = MaterialTheme.typography.bodySmall, color = LocalStudio.current.muted, modifier = Modifier.padding(top = 6.dp),
+            )
+            OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                 Icon(Icons.Filled.Add, null)
                 Spacer(Modifier.width(8.dp))
                 Text("Add printer or account")

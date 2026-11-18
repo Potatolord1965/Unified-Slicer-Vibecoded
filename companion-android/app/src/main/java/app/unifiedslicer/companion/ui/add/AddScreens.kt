@@ -61,8 +61,10 @@ private fun friendly(e: Throwable): String = when (e) {
 }
 
 @Composable
-fun AddScreen(onBack: () -> Unit, onPick: (String) -> Unit) {
+fun AddScreen(onBack: () -> Unit, onPick: (String) -> Unit, onScan: () -> Unit) {
     FormScaffold("Add", onBack) {
+        SectionLabel("Quickest")
+        ChoiceRow("From Unified Slicer", "Scan the code under Accounts > Sign in on phone", Brand.OTHER, onScan)
         SectionLabel("Cloud accounts")
         AddChoice.entries.forEach { c -> ChoiceRow(c.title, c.subtitle, c.brand) { onPick(c.route) } }
         SectionLabel("On your network")
