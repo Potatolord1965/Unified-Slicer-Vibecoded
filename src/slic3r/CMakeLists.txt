@@ -530,6 +530,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/RecenterDialog.hpp
     GUI/ReleaseNote.cpp
     GUI/ReleaseNote.hpp
+    GUI/UnifiedUpdater.cpp
+    GUI/UnifiedUpdater.hpp
+    GUI/UpdateScreen.cpp
+    GUI/UpdateScreen.hpp
     GUI/RemovableDriveManager.cpp
     GUI/RemovableDriveManager.hpp
     GUI/SavePresetDialog.cpp

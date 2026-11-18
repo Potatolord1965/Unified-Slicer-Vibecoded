@@ -1,0 +1,90 @@
+# Follows the projects Unified Slicer is built from.
+#
+# OrcaSlicer shares this repository's history, so a new Orca release is merged on a branch and
+# opened as a pull request when the merge is clean, or reported as an issue listing the
+# conflicting files when it is not. ElegooSlicer, Unlayered Slicer and Bambu Studio have their
+# own histories (Unlayered publishes squashed source drops), so their releases can't be merged;
+# each new one is reported as an issue for a manual port.
+#
+# Users get the result through the app's updater once a Unified Slicer release is published.
+name: Upstream watch
+
+on:
+  schedule:
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-watch
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check upstream releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          base="${{ github.event.repository.default_branch }}"
+
+          # Opens an issue unless one with the same title is already open.
+          open_issue() {
+            local title="$1" body="$2"
+            if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')" ]; then
+              gh label create upstream --color 5319e7 --description "Upstream release to merge or port" 2>/dev/null || true
+              gh issue create --title "$title" --body "$body" --label upstream
+            fi
+          }
+
+          newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "${1#v}" "${2#v}" | sort -V | tail -1)" = "${2#v}" ]; }
+
+          for key in $(jq -r 'to_entries[] | select(.value|type=="object") | .key' .github/upstream.json); do
+            repo=$(jq -r ".$key.repo" .github/upstream.json)
+            have=$(jq -r ".$key.version" .github/upstream.json)
+            mode=$(jq -r ".$key.mode" .github/upstream.json)
+            latest=$(gh api "repos/$repo/releases/latest" --jq .tag_name 2>/dev/null || true)
+            echo "$key: have $have, latest ${latest:-none}"
+            if [ -z "$latest" ] || ! newer "$have" "$latest"; then continue; fi
+
+            url="https://github.com/$repo/releases/tag/$latest"
+            if [ "$mode" != "merge" ]; then
+              open_issue "Port $repo $latest" "$repo published [$latest]($url). Its history is separate from this repository, so the changes Unified Slicer uses must be ported by hand. Update \`.github/upstream.json\` to \`$latest\` when done."
+              continue
+            fi
+
+            branch="upstream/$key-$latest"
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+              echo "$branch already exists"; continue
+            fi
+            git fetch --no-tags "https://github.com/$repo" "refs/tags/$latest:refs/tags/upstream-$latest"
+            git checkout -B "$branch" "origin/$base"
+            if git merge --no-edit -m "Merge $repo $latest" "upstream-$latest"; then
+              jq ".$key.version = \"$latest\"" .github/upstream.json > upstream.tmp && mv upstream.tmp .github/upstream.json
+              git commit -am "Track $repo $latest"
+              git push origin "$branch"
+              gh pr create --base "$base" --head "$branch" --title "Merge $repo $latest" \
+                --body "Automatic merge of [$latest]($url); it merged without conflicts. Build and test before merging. Pull requests opened by this workflow don't start the build workflows, so run them from the Actions tab."
+            else
+              conflicts=$(git diff --name-only --diff-filter=U | sed 's/^/- `/; s/$/`/')
+              git merge --abort
+              open_issue "Merge $repo $latest" "$repo published [$latest]($url). Merging it into \`$base\` conflicts in:
+
+          $conflicts
+
+          These files carry Unified Slicer changes, so the conflicts need resolving by hand."
+            fi
+            git checkout -q "origin/$base"
+          done
