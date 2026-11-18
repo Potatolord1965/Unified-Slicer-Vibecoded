@@ -3,13 +3,21 @@
 #include <algorithm>
 #include <chrono>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <wx/bitmap.h>
+#include <wx/colour.h>
+#include <wx/defs.h>
+#include <wx/event.h>
+#include <wx/gdicmn.h>
 #include <wx/image.h>
 #include <wx/sizer.h>
 #include <wx/statbmp.h>
 #include <wx/stattext.h>
+#include <wx/string.h>
+#include <wx/timer.h>
+#include <wx/toplevel.h>
 #include <wx/utils.h>
 
 #include <boost/log/trivial.hpp>
@@ -18,6 +26,7 @@
 
 #include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
+#include "slic3r/GUI/GUI_Utils.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/format.hpp"
 #include "slic3r/GUI/Widgets/Button.hpp"
@@ -28,6 +37,7 @@
 #include "slic3r/Utils/ICloudServiceAgent.hpp"
 #include "slic3r/Utils/MarkforgedEiger.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
+#include "slic3r/Utils/PhoneSignIn.hpp"
 #include "libslic3r/AppConfig.hpp"
 
 namespace Slic3r { namespace GUI {
@@ -142,14 +152,14 @@ PhoneSignInDialog::PhoneSignInDialog(wxWindow* parent)
     m_qr = new wxStaticBitmap(this, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize(FromDIP(QR_SIZE_DIP), FromDIP(QR_SIZE_DIP)));
     sizer->Add(m_qr, 0, wxALIGN_CENTER_HORIZONTAL | wxTOP | wxBOTTOM, pad);
 
-    m_status = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL);
+    m_status = new wxStaticText(this, wxID_ANY, wxString(), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL);
     m_status->SetFont(Label::Head_13);
     sizer->Add(m_status, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
 
-    m_included = new wxStaticText(this, wxID_ANY, wxEmptyString);
+    m_included = new wxStaticText(this, wxID_ANY, wxString());
     m_included->SetFont(Label::Body_13);
     sizer->Add(m_included, 0, wxLEFT | wxRIGHT | wxTOP, pad);
-    m_missing = new wxStaticText(this, wxID_ANY, wxEmptyString);
+    m_missing = new wxStaticText(this, wxID_ANY, wxString());
     m_missing->SetFont(Label::Body_12);
     m_missing->SetForegroundColour(wxColour("#6B6B6B"));
     sizer->Add(m_missing, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
