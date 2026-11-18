@@ -9,12 +9,12 @@ set(SLIC3R_APP_CATALOG "OrcaSlicer")
 # Windows executable name.
 set(SLIC3R_APP_EXE "unified-slicer")
 # Unified Slicer's own release number, shown on the splash and About screens.
-set(UNIFIED_VERSION "1.1.0")
+set(UNIFIED_VERSION "1.2.0")
 
 if(NOT DEFINED BBL_INTERNAL_TESTING)
 set(BBL_INTERNAL_TESTING "0")
 endif()
-set(SoftFever_VERSION "2.5.0")
+set(SoftFever_VERSION "2.5.1")
 string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)"
        SoftFever_VERSION_MATCH ${SoftFever_VERSION})
 set(ORCA_VERSION_MAJOR ${CMAKE_MATCH_1})

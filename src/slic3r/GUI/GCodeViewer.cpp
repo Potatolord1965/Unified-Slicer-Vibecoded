@@ -386,7 +386,9 @@ void GCodeViewer::SequentialView::Marker::render(int canvas_width, int canvas_he
     // envelope has four different sides, so the head's spin about its own axis now shows.
     const Vec3d tip = (m_world_position + m_model_z_offset * Vec3f::UnitZ()).cast<double>();
     Transform3d tool_rotation = Transform3d::Identity();
-    tool_rotation.linear()    = tool_head_frame(m_tool_axis.cast<double>()).transpose();
+    // A planar print's tool axis is +Z; a belt printer's designed view then tilts the nozzle instead.
+    const Vec3d tool_axis = m_tool_axis.isApprox(Vec3f::UnitZ()) ? m_nozzle_axis : m_tool_axis.cast<double>();
+    tool_rotation.linear()    = tool_head_frame(tool_axis).transpose();
     const Transform3d model_matrix = Geometry::translation_transform(tip) * tool_rotation *
         (Geometry::translation_transform(scale_factor * m_model.get_bounding_box().size().z() * Vec3d::UnitZ()) *
          Geometry::rotation_transform({ M_PI, 0.0, 0.0 })) *
@@ -866,9 +868,15 @@ void GCodeViewer::SequentialView::Marker::render_position_window(const libvgcode
 
         ImGui::BeginGroup(); // group contents to make information area more compact
 
+        // Preview vertices include the plate offset for rendering in scene coordinates.
+        // Show the position relative to the current plate instead.
+        auto pos = vertex.position;
+        const Vec3d plate_origin = wxGetApp().plater()->get_partplate_list().get_curr_plate()->get_origin();
+        pos[0] -= static_cast<float>(plate_origin.x());
+        pos[1] -= static_cast<float>(plate_origin.y());
+
         // ORCA Use colorized axis labels & reduce precision on large-scale prints,
         // show one more decimal when the G-code was exported with high precision
-        auto pos       = vertex.position;
         int  max_value = std::round(std::max(std::max(pos[0], pos[1]), pos[2]));
         auto precision = m_high_precision_gcode ? (max_value > 9999 ? "%.2f" : max_value > 999 ? "%.3f" : "%.4f")
                                                 : (max_value > 9999 ? "%.1f" : max_value > 999 ? "%.2f" : "%.3f");
@@ -1509,6 +1517,9 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
                 mass.transform(*display_transform);
     }
     libvgcode::GCodeInputData data = libvgcode::convert(gcode_result, str_tool_colors, str_color_print_colors, m_viewer, display_transform);
+    // ORCA Tilt the marker to the layer normal of the designed belt view
+    m_sequential_view.marker.set_nozzle_axis(display_transform != nullptr ?
+        (display_transform->linear() * Vec3d::UnitZ()).normalized() : Vec3d::UnitZ());
 
 //#define ENABLE_DATA_EXPORT 1
 //#if ENABLE_DATA_EXPORT
@@ -2460,6 +2471,7 @@ void GCodeViewer::render_markers(int canvas_width, int canvas_height)
                                              prim_pos.z() };
                         m_sequential_view.m_imex_secondary_markers[i].set_world_position(sec_pos);
                         m_sequential_view.m_imex_secondary_markers[i].set_z_offset(m_z_offset + 0.5f);
+                        m_sequential_view.m_imex_secondary_markers[i].set_nozzle_axis(m_sequential_view.marker.get_nozzle_axis());
                         carriage_box_draws.push_back({
                             sec_pos, carriage_colors[i + 1],
                             carriage.box_offset_x, carriage.box_offset_y });
