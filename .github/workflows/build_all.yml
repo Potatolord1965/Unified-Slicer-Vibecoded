@@ -27,6 +27,7 @@ on:
      - 'scripts/test_prune_cached_presets.ps1'
      - 'scripts/flatpak/**'
      - 'scripts/msix/**'
+     - 'scripts/dmg/**'
      - 'scripts/sign_windows.ps1'
      - 'tests/**'
 
@@ -54,6 +55,7 @@ on:
      - 'scripts/test_prune_cached_presets.ps1'
      - 'scripts/flatpak/**'
      - 'scripts/msix/**'
+     - 'scripts/dmg/**'
      - 'scripts/sign_windows.ps1'
      - 'tests/**'
 
