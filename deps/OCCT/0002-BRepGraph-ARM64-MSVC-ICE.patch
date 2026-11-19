@@ -1,0 +1,16 @@
+diff --git a/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx b/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx
+index 44e59b0..c0e10b2 100644
+--- a/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx
++++ b/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx
+@@ -21,6 +21,11 @@
+ #include <Standard_ProgramError.hxx>
+ #include <TCollection_AsciiString.hxx>
+ 
++// MSVC's ARM64 optimizer crashes on this file (C1001 at isSupportedOwnerKind's switch).
++#if defined(_MSC_VER) && !defined(__clang__) && defined(_M_ARM64)
++  #pragma optimize("", off)
++#endif
++
+ IMPLEMENT_STANDARD_RTTIEXT(BRepGraph_LayerTopoSupplement, BRepGraph_Layer)
+ 
+ namespace

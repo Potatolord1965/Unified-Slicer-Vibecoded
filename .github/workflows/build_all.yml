@@ -407,6 +407,19 @@ jobs:
     - name: Check the manifest keeps orca_deps cacheable
       run: ./scripts/flatpak/check_manifest_cacheable.sh
       shell: bash
+    # The image ships the GNOME SDK preinstalled. On overlayfs without redirect_dir
+    # (the x86_64 runners), updating it renames directories from the image's lower
+    # layer, which fails with "Invalid cross-device link". Copying the installation
+    # moves every directory into the writable layer, where renames work.
+    - name: Move the preinstalled Flatpak runtimes into the writable layer
+      run: |
+        for dir in /var/lib/flatpak "$HOME/.local/share/flatpak"; do
+          [ -d "$dir" ] || continue
+          cp -a "$dir" "$dir.rw"
+          rm -rf "$dir"
+          mv "$dir.rw" "$dir"
+        done
+      shell: bash
     - name: Pack deps/ for the Flatpak manifest
       run: ./scripts/flatpak/make_deps_tar.sh
       shell: bash
