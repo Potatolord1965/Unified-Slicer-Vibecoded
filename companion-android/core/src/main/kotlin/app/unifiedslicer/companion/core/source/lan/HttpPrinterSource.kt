@@ -52,6 +52,10 @@ abstract class HttpPrinterSource(final override val account: LanPrinter, protect
         else -> base.trimEnd('/') + "/" + url
     }
 
+    /** URL-encodes each segment of [path], keeping the slashes. */
+    protected fun encodePath(path: String): String =
+        path.split('/').joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+
     protected fun status(state: PrinterState) =
         PrinterStatus(account.id, account.host, account.label, account.kind.label, account.brand, via, state)
 
