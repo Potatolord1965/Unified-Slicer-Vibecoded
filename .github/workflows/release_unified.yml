@@ -1,0 +1,101 @@
+name: Release Unified Slicer
+
+# Publishes the Windows and macOS builds of a "Build all" run as a GitHub release
+# named after UNIFIED_VERSION in version.inc. The asset names are what the in-app
+# updater looks for (UnifiedSlicer-<version>-win64.zip and its .sha256), so keep
+# them in step with UnifiedUpdater.cpp.
+#
+# Trigger: Actions tab -> "Release Unified Slicer" -> Run workflow. Leave run_id
+# empty to use the latest successful "Build all" run on main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID of the "Build all" workflow (empty = latest successful run on main)'
+        required: false
+        type: string
+
+permissions:
+  contents: write   # create the release and upload assets
+  actions: read     # download artifacts from another run
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Pick the build run
+        run: |
+          run_id='${{ inputs.run_id }}'
+          if [ -z "$run_id" ]; then
+            run_id=$(gh run list --repo "$REPO" --workflow build_all.yml --branch main --event push \
+                       --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful Build all run on main found."
+            exit 1
+          fi
+          sha=$(gh run view "$run_id" --repo "$REPO" --json headSha --jq '.headSha')
+          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "SHA=$sha" >> "$GITHUB_ENV"
+          echo "Using run $run_id at $sha"
+
+      - name: Read the version
+        run: |
+          ver=$(gh api "repos/$REPO/contents/version.inc?ref=$SHA" --jq '.content' | base64 -d |
+                grep 'set(UNIFIED_VERSION' | cut -d '"' -f2)
+          if [ -z "$ver" ]; then
+            echo "::error::UNIFIED_VERSION not found in version.inc at $SHA."
+            exit 1
+          fi
+          echo "VER=$ver" >> "$GITHUB_ENV"
+          echo "Version $ver"
+
+      - name: Download the builds
+        run: |
+          gh run download "$RUN_ID" --repo "$REPO" --dir artifacts \
+            -p 'OrcaSlicer_Windows_V*_x64_portable' \
+            -p 'OrcaSlicer_Windows_V*_x64' \
+            -p 'OrcaSlicer_Mac_universal_*'
+          find artifacts -maxdepth 2 | sort
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          portable=$(find artifacts -maxdepth 1 -type d -name 'OrcaSlicer_Windows_V*_x64_portable' | head -n 1)
+          if [ -z "$portable" ]; then
+            echo "::error::The run has no Windows x64 build."
+            exit 1
+          fi
+          mv "$portable" "Unified Slicer"
+          zip -qr9 "dist/UnifiedSlicer-$VER-win64.zip" "Unified Slicer"
+          (cd dist && sha256sum "UnifiedSlicer-$VER-win64.zip" > "UnifiedSlicer-$VER-win64.zip.sha256")
+
+          installer=$(find artifacts -path '*OrcaSlicer_Windows_V*_x64/*' -name '*.exe' | head -n 1)
+          [ -n "$installer" ] && cp "$installer" "dist/UnifiedSlicer-$VER-win64-setup.exe"
+
+          dmg=$(find artifacts -path '*OrcaSlicer_Mac_universal_*' -name '*.dmg' | head -n 1)
+          if [ -n "$dmg" ]; then
+            cp "$dmg" "dist/UnifiedSlicer-$VER-mac-universal.dmg"
+          else
+            echo "::warning::The run has no macOS build; releasing Windows only."
+          fi
+          ls -l dist
+
+      - name: Publish
+        run: |
+          tag="v$VER"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --repo "$REPO" --clobber
+          else
+            gh release create "$tag" dist/* --repo "$REPO" --target "$SHA" --title "Unified Slicer $VER" \
+              --notes "Built from $SHA (Build all run $RUN_ID).
+
+          **Windows:** download \`UnifiedSlicer-$VER-win64.zip\`, unzip it and run \`unified-slicer.exe\`. Installed copies update themselves from the app.
+
+          **macOS:** open \`UnifiedSlicer-$VER-mac-universal.dmg\` and drag the app to Applications. The app is not notarized, so the first time macOS blocks it: open System Settings > Privacy & Security and click Open Anyway."
+          fi
