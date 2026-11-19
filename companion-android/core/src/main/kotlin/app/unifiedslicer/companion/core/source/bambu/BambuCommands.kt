@@ -1,5 +1,6 @@
 package app.unifiedslicer.companion.core.source.bambu
 
+import app.unifiedslicer.companion.core.source.motionGcode
 import app.unifiedslicer.companion.core.net.MqttLink
 import app.unifiedslicer.companion.core.net.long
 import app.unifiedslicer.companion.core.net.obj
@@ -62,6 +63,7 @@ class BambuCommands {
                 is PrinterCommand.SetNozzle -> print("gcode_line", "M104 S${command.celsius}\n")
                 is PrinterCommand.SetBed -> print("gcode_line", "M140 S${command.celsius}\n")
                 is PrinterCommand.Speed -> print("print_speed", command.level.level.toString())
+                PrinterCommand.Home, is PrinterCommand.Move -> print("gcode_line", motionGcode(command) + "\n")
                 is PrinterCommand.Light -> buildJsonObject {
                     putJsonObject("system") {
                         put("sequence_id", seq); put("command", "ledctrl"); put("led_node", "chamber_light")

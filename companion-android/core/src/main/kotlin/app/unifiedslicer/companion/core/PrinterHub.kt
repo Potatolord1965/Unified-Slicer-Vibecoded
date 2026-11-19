@@ -1,5 +1,9 @@
 package app.unifiedslicer.companion.core
 
+import app.unifiedslicer.companion.core.source.FileBrowsable
+import app.unifiedslicer.companion.core.source.HistoryCapable
+import app.unifiedslicer.companion.core.model.PrinterFile
+import app.unifiedslicer.companion.core.model.PastPrint
 import app.unifiedslicer.companion.core.source.Controllable
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.camera.CameraCapable
@@ -105,6 +109,25 @@ class PrinterHub(private val ctx: SourceContext, private val factory: (Account, 
     suspend fun camera(accountId: String, deviceId: String): CameraFeed? {
         val src = lock.withLock { sources[accountId]?.second }
         return (src as? CameraCapable)?.camera(deviceId)
+    }
+
+    /** Files kept on a printer; throws when the printer cannot list them. */
+    suspend fun files(accountId: String, deviceId: String): List<PrinterFile> = browsable(accountId).files(deviceId)
+
+    suspend fun printFile(accountId: String, deviceId: String, file: PrinterFile) = browsable(accountId).printFile(deviceId, file)
+
+    /** Past prints, newest first; throws when the service keeps no history this app can read. */
+    suspend fun history(accountId: String, deviceId: String): List<PastPrint> {
+        val src = source(accountId)
+        return (src as? HistoryCapable ?: throw java.io.IOException("${src.account.kindLabel} keeps no print history this app can read")).history(deviceId)
+    }
+
+    private suspend fun source(accountId: String) =
+        lock.withLock { sources[accountId]?.second } ?: throw java.io.IOException("This printer is no longer on your accounts")
+
+    private suspend fun browsable(accountId: String): FileBrowsable {
+        val src = source(accountId)
+        return src as? FileBrowsable ?: throw java.io.IOException("${src.account.kindLabel} printers cannot list their files in this app")
     }
 
     /** Drops open connections (e.g. when the app goes to the background); the next refresh reconnects. */

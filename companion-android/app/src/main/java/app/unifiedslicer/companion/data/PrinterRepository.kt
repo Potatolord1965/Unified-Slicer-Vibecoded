@@ -5,6 +5,8 @@ import app.unifiedslicer.companion.core.PrinterHub
 import app.unifiedslicer.companion.core.source.SourceContext
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.camera.CameraFeed
+import app.unifiedslicer.companion.core.model.PastPrint
+import app.unifiedslicer.companion.core.model.PrinterFile
 import app.unifiedslicer.companion.core.source.PrintJob
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import kotlinx.coroutines.delay
@@ -109,6 +111,23 @@ class PrinterRepository(val http: OkHttpClient, private val store: AccountStore,
 
     /** The camera of [printer], or null when the app cannot show one for it. Throws when it is switched off. */
     suspend fun camera(printer: PrinterStatus): CameraFeed? = hub.camera(printer.accountId, printer.deviceId)
+
+    suspend fun files(printer: PrinterStatus): List<PrinterFile> = withContext(Dispatchers.Default) { hub.files(printer.accountId, printer.deviceId) }
+
+    /** Starts [file] on [printer]; returns why it failed, or null. */
+    suspend fun printFile(printer: PrinterStatus, file: PrinterFile): String? = withContext(Dispatchers.Default) {
+        try {
+            hub.printFile(printer.accountId, printer.deviceId, file)
+            scope.launch { delay(1500); refresh() }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: e.javaClass.simpleName
+        }
+    }
+
+    suspend fun history(printer: PrinterStatus): List<PastPrint> = withContext(Dispatchers.Default) { hub.history(printer.accountId, printer.deviceId) }
 
     fun refreshAsync() { scope.launch { refresh() } }
 
