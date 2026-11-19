@@ -67,6 +67,8 @@ class ElegooPrinterChannel private constructor(private val printerUser: String) 
         const val M_PAUSE_PRINT = 1021
         const val M_STOP_PRINT = 1022
         const val M_RESUME_PRINT = 1023
+        const val M_HOME = 1026
+        const val M_MOVE = 1027
         const val M_SET_TEMPERATURE = 1028
         const val M_DOWNLOAD_FILE = 1057
         const val M_CANCEL_DOWNLOAD = 1058
@@ -96,5 +98,7 @@ fun elegooRequest(command: PrinterCommand): Pair<Int, JsonObject> = when (comman
     PrinterCommand.Stop -> ElegooPrinterChannel.M_STOP_PRINT to JsonObject(emptyMap())
     is PrinterCommand.SetNozzle -> ElegooPrinterChannel.M_SET_TEMPERATURE to buildJsonObject { put("extruder", command.celsius) }
     is PrinterCommand.SetBed -> ElegooPrinterChannel.M_SET_TEMPERATURE to buildJsonObject { put("heater_bed", command.celsius) }
+    PrinterCommand.Home -> ElegooPrinterChannel.M_HOME to buildJsonObject { put("homed_axes", "xyz") }
+    is PrinterCommand.Move -> ElegooPrinterChannel.M_MOVE to buildJsonObject { put("axes", command.axis.toString()); put("distance", command.mm) }
     is PrinterCommand.Light, is PrinterCommand.Speed -> throw IOException("Not available on Elegoo printers from this app")
 }

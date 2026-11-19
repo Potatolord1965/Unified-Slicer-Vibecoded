@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.elegoo
 
+import app.unifiedslicer.companion.core.model.FilamentSlot
+import app.unifiedslicer.companion.core.net.arr
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -41,6 +43,32 @@ object ElegooStatus {
         else -> PrinterState.IDLE
     }
 
+    /**
+     * Canvas (multi-colour unit) trays, as in elegoo-link's handleCanvasStatus: canvas_list[] with
+     * tray_list[] {tray_id, filament_type, filament_color, status}; active_canvas_id/active_tray_id.
+     */
+    fun canvas(ci: JsonObject?): List<FilamentSlot> {
+        if (ci == null) return emptyList()
+        val activeCanvas = ci.int("active_canvas_id")
+        val activeTray = ci.int("active_tray_id")
+        val many = (ci.arr("canvas_list")?.size ?: 0) > 1
+        return ci.arr("canvas_list").orEmpty().flatMap { canvas ->
+            val id = canvas.int("canvas_id") ?: 0
+            if (canvas.int("connected") == 0) return@flatMap emptyList()
+            canvas.arr("tray_list").orEmpty().mapNotNull { tray ->
+                val trayId = tray.int("tray_id") ?: return@mapNotNull null
+                val type = tray.str("filament_type").orEmpty()
+                FilamentSlot(
+                    label = (if (many) "${id + 1}-" else "") + (trayId + 1),
+                    type = type.ifEmpty { "Empty" },
+                    color = tray.str("filament_color")?.let { c -> if (c.startsWith("#")) c.uppercase() else "#" + c.uppercase() }?.takeIf { it.length == 7 },
+                    active = id == activeCanvas && trayId == activeTray,
+                    empty = type.isEmpty(),
+                )
+            }
+        }
+    }
+
     fun toStatus(
         accountId: String,
         deviceId: String,
@@ -77,6 +105,7 @@ object ElegooStatus {
             bed = temp("heater_bed"),
             chamber = temp("ztemperature_sensor"),
             alert = alert?.let { "Alert $it" },
+            filament = canvas(s.obj("canvas_info")),
             updatedAt = updatedAt,
         )
     }

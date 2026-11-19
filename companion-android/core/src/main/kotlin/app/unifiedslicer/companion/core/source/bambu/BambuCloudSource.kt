@@ -1,5 +1,9 @@
 package app.unifiedslicer.companion.core.source.bambu
 
+import app.unifiedslicer.companion.core.source.HistoryCapable
+import app.unifiedslicer.companion.core.model.PastPrint
+import app.unifiedslicer.companion.core.net.int
+import app.unifiedslicer.companion.core.net.long
 import app.unifiedslicer.companion.core.source.Controllable
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.model.BambuAccount
@@ -26,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Bambu Cloud: the account's bound printers from the REST API, live status from Bambu's MQTT
  * broker (user "u_<uid>", password = access token, topic device/<serial>/report).
  */
-class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : PrinterSource, Controllable {
+class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : PrinterSource, Controllable, HistoryCapable {
     override var account: BambuAccount = account
         private set
 
@@ -123,14 +127,36 @@ class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : 
         commands.send(link ?: throw java.io.IOException("Not connected to Bambu's cloud"), deviceId, command)
     }
 
+    /** Bambu's cloud task list, as Bambu Handy's history. */
+    override suspend fun history(deviceId: String): List<PastPrint> = withRenewal {
+        parseTasks(ctx.http.fetchJson(
+            Request.Builder().url(BambuAuth.apiBase(account.region) + "/v1/user-service/my/tasks?limit=30&deviceId=" + java.net.URLEncoder.encode(deviceId, "UTF-8"))
+                .header("Authorization", "Bearer ${account.accessToken}").build()
+        ), deviceId)
+    }
+
     override fun close() {
         link?.close()
         link = null
     }
 
-    private companion object {
-        const val VIA = "Bambu Cloud"
-        const val DEVICE_LIST_TTL_MS = 60_000L
-        const val PUSH_ALL = """{"pushing":{"sequence_id":"0","command":"pushall","version":1,"push_target":1}}"""
+    companion object {
+        private const val VIA = "Bambu Cloud"
+
+        /** hits[]: {title, designTitle, status, startTime (ISO), costTime (s), deviceId}. Status 2 finished, 3 failed, 1 running. */
+        fun parseTasks(reply: kotlinx.serialization.json.JsonElement, deviceId: String): List<PastPrint> =
+            reply.arr("hits").orEmpty()
+                .filter { it.str("deviceId").let { d -> d == null || d == deviceId } }
+                .mapNotNull { t ->
+                    val name = t.str("title")?.takeIf { it.isNotBlank() } ?: t.str("designTitle") ?: return@mapNotNull null
+                    PastPrint(
+                        name = name,
+                        state = when (t.int("status")) { 1 -> PrinterState.PRINTING; 2 -> PrinterState.FINISHED; 3 -> PrinterState.FAILED; else -> PrinterState.UNKNOWN },
+                        startedAt = t.str("startTime")?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() },
+                        durationSeconds = t.long("costTime")?.takeIf { it > 0 },
+                    )
+                }
+        private const val DEVICE_LIST_TTL_MS = 60_000L
+        private const val PUSH_ALL = """{"pushing":{"sequence_id":"0","command":"pushall","version":1,"push_target":1}}"""
     }
 }

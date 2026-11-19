@@ -1,5 +1,11 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.source.FileBrowsable
+import app.unifiedslicer.companion.core.source.HistoryCapable
+import app.unifiedslicer.companion.core.model.PrinterFile
+import app.unifiedslicer.companion.core.model.PastPrint
+import app.unifiedslicer.companion.core.net.long
+import app.unifiedslicer.companion.core.source.motionGcode
 import app.unifiedslicer.companion.core.source.Controllable
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.camera.CameraCapable
@@ -25,7 +31,7 @@ import okhttp3.MultipartBody
 import kotlinx.serialization.json.JsonElement
 
 /** Klipper through Moonraker's HTTP API. */
-class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable {
+class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable, FileBrowsable, HistoryCapable {
     override val via = "LAN · Moonraker"
 
     override suspend fun read(): PrinterStatus {
@@ -57,6 +63,7 @@ class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
         PrinterCommand.Stop -> post("/printer/print/cancel")
         is PrinterCommand.SetNozzle -> gcode("M104 S${command.celsius}")
         is PrinterCommand.SetBed -> gcode("M140 S${command.celsius}")
+        PrinterCommand.Home, is PrinterCommand.Move -> gcode(motionGcode(command)!!)
         is PrinterCommand.Light, is PrinterCommand.Speed -> throw java.io.IOException("Not available on Klipper printers from this app")
     }
 
@@ -68,6 +75,35 @@ class MoonrakerSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
         val cam = runCatching { get("/server/webcams/list").obj("result").arr("webcams")?.firstOrNull { it.bool("enabled") != false } }.getOrNull()
         val url = cam.str("snapshot_url")?.takeIf { it.isNotBlank() } ?: "/webcam/?action=snapshot"
         return CameraFeed.Http(resolve(url))
+    }
+
+    override suspend fun files(deviceId: String): List<PrinterFile> =
+        get("/server/files/list?root=gcodes").arr("result").orEmpty().mapNotNull { f ->
+            val path = f.str("path") ?: return@mapNotNull null
+            PrinterFile(path, sizeBytes = f.long("size"), modifiedAt = f.num("modified")?.let { (it * 1000).toLong() })
+        }.sortedByDescending { it.modifiedAt ?: 0 }
+
+    override suspend fun printFile(deviceId: String, file: PrinterFile) =
+        post("/printer/print/start?filename=" + encodePath(file.path))
+
+    override suspend fun history(deviceId: String): List<PastPrint> =
+        parseHistory(get("/server/history/list?limit=30&order=desc"))
+
+    fun parseHistory(reply: JsonElement): List<PastPrint> = reply.obj("result").arr("jobs").orEmpty().mapNotNull { j ->
+        val name = j.str("filename") ?: return@mapNotNull null
+        val status = j.str("status")
+        PastPrint(
+            name = name.substringAfterLast('/'),
+            state = when (status) {
+                "completed" -> PrinterState.FINISHED
+                "in_progress" -> PrinterState.PRINTING
+                "cancelled", "error", "klippy_shutdown", "klippy_disconnect", "server_exit", "interrupted" -> PrinterState.FAILED
+                else -> PrinterState.UNKNOWN
+            },
+            startedAt = j.num("start_time")?.let { (it * 1000).toLong() },
+            durationSeconds = j.num("print_duration")?.toLong()?.takeIf { it > 0 },
+            note = when (status) { "cancelled" -> "Cancelled"; "klippy_shutdown", "klippy_disconnect" -> "Klipper stopped"; else -> null },
+        )
     }
 
     fun parse(s: JsonElement?): PrinterStatus {
