@@ -30,4 +30,5 @@ add_subdirectory(miniz)
 add_subdirectory(minilzo)
 add_subdirectory(qhull)
 add_subdirectory(qoi)
+add_subdirectory(qrcodegen)  # QR codes (phone sign-in)
 add_subdirectory(semver)      # Semver static library

@@ -27,10 +27,12 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val app get() = application as CompanionApp
     private var openPrinter by mutableStateOf<String?>(null)
+    private var openSignIn by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         openPrinter = intent?.getStringExtra(EXTRA_PRINTER)
+        openSignIn = signInCode(intent)
 
         if (Build.VERSION.SDK_INT >= 33 && app.settings.notifications.value &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -48,7 +50,7 @@ class MainActivity : ComponentActivity() {
             }
             StudioTheme(dark) {
                 androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
-                    CompanionNav(app, dark, openPrinter) { openPrinter = null }
+                    CompanionNav(app, dark, openPrinter, { openPrinter = null }, openSignIn, { openSignIn = null })
                 }
             }
         }
@@ -73,7 +75,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_PRINTER)?.let { openPrinter = it }
+        signInCode(intent)?.let { openSignIn = it }
     }
+
+    /** A Unified Slicer sign-in code opened from the camera app (unifiedslicer://signin?…). */
+    private fun signInCode(intent: Intent?): String? =
+        intent?.data?.takeIf { intent.action == Intent.ACTION_VIEW && it.scheme == "unifiedslicer" && it.host == "signin" }?.toString()
 
     companion object {
         const val EXTRA_PRINTER = "printer"

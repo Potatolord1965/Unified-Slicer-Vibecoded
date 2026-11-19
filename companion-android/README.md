@@ -14,6 +14,10 @@ Features: send sliced files to a printer (see below), live status (progress, tim
 
 The protocols are the ones Unified Slicer's desktop code uses (`src/slic3r/Utils/ElegooCloud.cpp`, `CrealityCloud.cpp`, `MarkforgedEiger.cpp`, `resources/plugins/elegoo_cc2_lan.py`); Bambu Cloud uses Bambu's public account API.
 
+## Sign in from the computer
+
+Accounts > **Scan computer code** (or the phone's camera app) reads the QR code Unified Slicer shows under Accounts > Sign in on phone, and signs in to the same Bambu Lab, Elegoo, Creality and Markforged accounts in one step. The computer serves them once over the local network, encrypted with a key that is only in the QR code. See `docs/HLSD/phone-sign-in.md`.
+
 ## Controls and camera
 
 A printer's page has Pause / Resume / Stop, tap-to-set nozzle and bed temperatures, and on some printers a light switch and speed levels (`controlsFor` lists what each kind offers).

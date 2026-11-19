@@ -1,5 +1,6 @@
 #include "BBLCloudServiceAgent.hpp"
 #include "BBLNetworkPlugin.hpp"
+#include "PhoneSignIn.hpp"
 
 #include <boost/log/trivial.hpp>
 #include "CloudProvider.hpp"
@@ -169,7 +170,11 @@ int BBLCloudServiceAgent::change_user(std::string user_info)
     auto agent = plugin.get_agent();
     auto func = plugin.get_change_user();
     if (func && agent) {
-        return func(agent, user_info);
+        const int ret = func(agent, user_info);
+        // The plugin doesn't hand its tokens out; keep this session for the phone app's sign-in.
+        if (ret == 0)
+            PhoneSignIn::remember_bambu_login(user_info);
+        return ret;
     }
     return -1;
 }
@@ -190,6 +195,7 @@ int BBLCloudServiceAgent::user_logout(bool request)
     auto& plugin = BBLNetworkPlugin::instance();
     auto agent = plugin.get_agent();
     auto func = plugin.get_user_logout();
+    PhoneSignIn::forget_bambu_login();
     if (func && agent) {
         return func(agent, request);
     }
