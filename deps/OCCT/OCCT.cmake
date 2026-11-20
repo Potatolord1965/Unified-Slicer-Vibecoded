@@ -25,6 +25,14 @@ endif()
 # shipped bytes. Windows ships only the DLLs libslic3r links, so the tab adds the TKFillet,
 # TKOffset and TKBool DLLs. See docs/HLSD/design-tab.md.
 
+# cl (unlike clang-cl) fails with C1083 once an object path passes 260 characters, and
+# OCCT's generated sources nest deep enough to do that under the default
+# dep_OCCT-prefix/src/dep_OCCT-build tree. A short build directory keeps them under it.
+set(_occt_binary_dir_arg "")
+if (_occt_compiler_args)
+    set(_occt_binary_dir_arg BINARY_DIR ${CMAKE_BINARY_DIR}/occt-b)
+endif ()
+
 if (IN_GIT_REPO)
     set(OCCT_DIRECTORY_FLAG --directory ${BINARY_DIR_REL}/dep_OCCT-prefix/src/dep_OCCT)
 endif ()
@@ -35,6 +43,9 @@ orcaslicer_add_cmake_project(OCCT
     # Makes BRepMesh triangulate cone faces whose seam pcurve is slightly tilted
     # (Open-Cascade-SAS/OCCT#572); remove the patch once an OCCT release includes the fix.
     PATCH_COMMAND git apply ${OCCT_DIRECTORY_FLAG} --verbose --ignore-space-change --whitespace=fix ${CMAKE_CURRENT_LIST_DIR}/0001-BRepMesh-seam-pcurve-at-edge-parameter.patch
+    # Keeps MSVC's ARM64 optimizer away from a file it crashes on (C1001); no effect elsewhere.
+    COMMAND git apply ${OCCT_DIRECTORY_FLAG} --verbose --ignore-space-change --whitespace=fix ${CMAKE_CURRENT_LIST_DIR}/0002-BRepGraph-ARM64-MSVC-ICE.patch
+    ${_occt_binary_dir_arg}
     #DEPENDS dep_Boost
     CMAKE_ARGS
         -DCMAKE_CXX_STANDARD=17

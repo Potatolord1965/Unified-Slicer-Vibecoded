@@ -2950,7 +2950,9 @@ void ToolOrdering::reorder_extruders_for_minimum_flush_volume(bool reorder_first
     if (!print_config || m_layer_tools.empty())
         return;
 
-    const unsigned int number_of_extruders = (unsigned int)(print_config->filament_colour.values.size() + EPSILON);
+    // UNLAYERED_MOD -- one entry per filament: filament_colour can be shorter than the filament list
+    // (see apply_mm_segmentation()), and the layer tools may name any filament.
+    const unsigned int number_of_extruders = (unsigned int) print_config->filament_diameter.values.size();
 
     using FlushMatrix = std::vector<std::vector<float>>;
     size_t             nozzle_nums = print_config->nozzle_diameter.values.size();
@@ -2961,8 +2963,14 @@ void ToolOrdering::reorder_extruders_for_minimum_flush_volume(bool reorder_first
         std::vector<float> flush_matrix(cast<float>(get_flush_volumes_matrix(print_config->flush_volumes_matrix.values, nozzle_id, nozzle_nums)));
         std::vector<std::vector<float>> wipe_volumes;
         if ((print_config->purge_in_prime_tower && print_config->single_extruder_multi_material) || wipe_tower_type == WipeTowerType::Type1) {
-            for (unsigned int i = 0; i < number_of_extruders; ++i)
-                wipe_volumes.push_back(std::vector<float>(flush_matrix.begin() + i * number_of_extruders, flush_matrix.begin() + (i + 1) * number_of_extruders));
+            // The flush matrix can be smaller than the filament list too; a missing pair purges the prime volume.
+            const size_t stride = size_t(std::sqrt(double(flush_matrix.size())) + EPSILON);
+            for (unsigned int i = 0; i < number_of_extruders; ++i) {
+                std::vector<float> row(number_of_extruders, float(print_config->prime_volume));
+                for (size_t j = 0; i < stride && j < std::min<size_t>(number_of_extruders, stride); ++j)
+                    row[j] = flush_matrix[i * stride + j];
+                wipe_volumes.push_back(std::move(row));
+            }
         } else {
             // populate wipe_volumes with prime_volume
             for (unsigned int i = 0; i < number_of_extruders; ++i)

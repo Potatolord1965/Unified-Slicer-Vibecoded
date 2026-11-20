@@ -356,27 +356,39 @@ jobs:
             retry xcrun stapler staple OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
 
+      # Forks have no Apple Developer ID, so the app is ad-hoc signed instead: Apple
+      # Silicon refuses to run unsigned code, and an ad-hoc signature lets the user
+      # allow the app once in System Settings > Privacy & Security.
       - name: Create DMG without notary
-        if: github.ref != 'refs/heads/main' && runner.os == 'macOS' && inputs.macos-combine-only
+        if: ${{ !(github.repository == 'OrcaSlicer/OrcaSlicer' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))) && runner.os == 'macOS' && inputs.macos-combine-only }}
         working-directory: ${{ github.workspace }}
         run: |
           # Load the `retry` and `create_dmg` helpers.
           source ${{ github.workspace }}/scripts/retry.sh
           source ${{ github.workspace }}/scripts/create_dmg.sh
-          mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_dmg
-          rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
-          cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer.app ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/
-          ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Applications
-          create_dmg "OrcaSlicer" ${{ github.workspace }}/build/universal/OrcaSlicer_dmg OrcaSlicer_Mac_universal_${{ env.ver }}.dmg
-          
-          # Create separate OrcaSlicer_profile_validator DMG if the app exists
-          if [ -f "${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app/Contents/MacOS/OrcaSlicer_profile_validator" ]; then
-            mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg
-            rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/*
-            cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/
-            ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/Applications
-            create_dmg "OrcaSlicer Profile Validator" ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
-          fi
+          app_name=$(grep 'set(SLIC3R_APP_NAME' version.inc | cut -d '"' -f2)
+          dmg_dir=${{ github.workspace }}/build/universal/OrcaSlicer_dmg
+          mkdir -p "$dmg_dir"
+          rm -rf "$dmg_dir"/*
+          cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer.app "$dmg_dir/$app_name.app"
+          # Sign every nested Mach-O, then seal the bundle (codesign --deep cannot
+          # sign the bundled Python runtime).
+          find "$dmg_dir/$app_name.app" -type f -print0 |
+            xargs -0 file --no-pad --mime-type -- |
+            grep -v ' (for architecture ' |
+            grep ': application/x-mach-binary$' |
+            sed 's|: application/x-mach-binary$||' |
+            tr '\n' '\0' | xargs -0 codesign --force --sign -
+          codesign --force --sign - "$dmg_dir/$app_name.app"
+          codesign --verify --deep --strict --verbose=2 "$dmg_dir/$app_name.app"
+          ln -sfn /Applications "$dmg_dir/Applications"
+          cat > "$dmg_dir/First launch.txt" <<'TXT'
+          1. Drag the app into Applications.
+          2. Open it. macOS will say it cannot verify the developer.
+          3. Open System Settings > Privacy & Security, scroll down and click "Open Anyway".
+          You only need to do this once.
+          TXT
+          create_dmg "$app_name" "$dmg_dir" OrcaSlicer_Mac_universal_${{ env.ver }}.dmg
 
       # Delete the per-arch bundles only after signing/DMG creation succeeded, so a
       # failed run keeps them available for a re-run instead of forcing a full rebuild.
