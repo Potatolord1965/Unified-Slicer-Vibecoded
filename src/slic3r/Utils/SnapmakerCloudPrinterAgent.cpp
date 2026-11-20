@@ -2,13 +2,23 @@
 
 #include "ICloudServiceAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
+#include "IPrinterAgent.hpp"
+#include "SnapmakerCloud.hpp"
+#include "bambu_networking.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/I18N.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem/operations.hpp>

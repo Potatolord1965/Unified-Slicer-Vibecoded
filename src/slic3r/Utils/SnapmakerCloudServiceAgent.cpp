@@ -1,11 +1,14 @@
 #include "SnapmakerCloudServiceAgent.hpp"
 
 #include "SnapmakerCloud.hpp"
+#include "ICloudServiceAgent.hpp"
+#include "bambu_networking.hpp"
 #include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/MsgDialog.hpp"
 
 #include <string>
+#include <mutex>
 #include <utility>
 #include <vector>
 

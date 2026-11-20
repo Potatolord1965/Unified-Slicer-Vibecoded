@@ -10,6 +10,7 @@
 // Amazon Root CA 1.
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>

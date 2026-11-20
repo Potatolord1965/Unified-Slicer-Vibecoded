@@ -21,6 +21,7 @@
 #include "I18N.hpp"
 #include "VendorSendDialog.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Config.hpp"
 #include "slic3r/Utils/CrealityCloud.hpp"
 #include "slic3r/Utils/CrealityPrint.hpp"
 #include "slic3r/Utils/ElegooCloud.hpp"
@@ -29,6 +30,7 @@
 #include "slic3r/Utils/SnapmakerCloud.hpp"
 
 #include <boost/filesystem.hpp>
+#include <wx/app.h>
 #include <wx/choice.h>
 #include <wx/dialog.h>
 #include <wx/utils.h>

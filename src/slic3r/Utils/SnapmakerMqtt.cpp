@@ -2,8 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
 #include <functional>
+#include <memory>
 #include <set>
+#include <string>
 #include <utility>
 
 #include <boost/asio/buffer.hpp>
@@ -12,11 +18,14 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/host_name_verification.hpp>
+#include <boost/asio/ssl/stream_base.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/asio/ssl/verify_mode.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <openssl/ssl.h>
+#include <openssl/tls1.h>
 
 namespace Slic3r { namespace SnapmakerMqtt {
 
