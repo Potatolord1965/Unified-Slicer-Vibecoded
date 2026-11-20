@@ -23,6 +23,9 @@ void CloudPrinterProviders::register_builtin()
     // Creality: cloud agent "creality_cloud" with account "creality".
     add(std::make_shared<PrinterAgentCloudProvider>("creality", "Creality", 30, "creality_cloud", "creality",
                                                     wxColour("#D8762C")));
+    // Snapmaker: cloud agent "snapmaker_cloud" with account "snapmaker" (Snapmaker ID).
+    add(std::make_shared<PrinterAgentCloudProvider>("snapmaker", "Snapmaker", 35, "snapmaker_cloud", "snapmaker",
+                                                    wxColour("#0F8BD6")));
     // Markforged: Eiger cloud agent "markforged_eiger", API keys.
     add(std::make_shared<MarkforgedCloudProvider>());
     // USB & LAN: print-host presets (OctoPrint, Moonraker, ...) and USB printers no service claims.

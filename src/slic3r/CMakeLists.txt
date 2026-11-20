@@ -801,6 +801,14 @@ set(SLIC3R_GUI_SOURCES
     Utils/CrealityCloudPrinterAgent.hpp
     Utils/CrealityCloudServiceAgent.cpp
     Utils/CrealityCloudServiceAgent.hpp
+    Utils/SnapmakerCloud.cpp
+    Utils/SnapmakerCloud.hpp
+    Utils/SnapmakerCloudPrinterAgent.cpp
+    Utils/SnapmakerCloudPrinterAgent.hpp
+    Utils/SnapmakerCloudServiceAgent.cpp
+    Utils/SnapmakerCloudServiceAgent.hpp
+    Utils/SnapmakerMqtt.cpp
+    Utils/SnapmakerMqtt.hpp
     Utils/CrealityHostDiscovery.cpp
     Utils/CrealityHostDiscovery.hpp
     Utils/Duet.cpp

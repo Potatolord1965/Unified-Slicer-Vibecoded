@@ -17,7 +17,7 @@ class wxWebViewEvent;
 
 namespace Slic3r { namespace GUI {
 
-// One model site of the Home tab (Unlayered Universe, MakerWorld, Nexprint, Thingiverse) in its own
+// One model site of the Home tab (Unlayered Universe, MakerWorld, Nexprint, Snapmaker Space, Thingiverse) in its own
 // web view, shown beside the homepage nav column by WebViewPanel::set_model_site. Each site gets its
 // own view so switching between them never reloads a page, and all of them are created and loaded
 // in the background while Home is open (WebViewPanel::preload_model_sites).
@@ -31,6 +31,7 @@ namespace Slic3r { namespace GUI {
 //                 ticket, and the page's wx commands (makerworld_model_open, ...) handled by the app.
 //   nexprint    - ElegooSlicer's "Online Models": its slicer user agent and URL parameters, and its
 //                 page protocol (report.* requests, client.* events) with the Elegoo account.
+//   snapmaker   - Snapmaker Space, the plain site with the toolbar.
 //   thingiverse - the plain site.
 // On every site, model files and "Open in slicer" links are imported into the plater.
 class ModelSiteView : public wxPanel

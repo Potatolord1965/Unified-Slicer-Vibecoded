@@ -8,17 +8,19 @@ When the selected printer comes from a vendor that has its own slicer app, **Pri
 | Elegoo | ElegooSlicer's print-send page | Elegoo cloud printers of the signed-in account, plus the LAN printer set in the preset | Canvas |
 | Creality | Creality Print's send dialog | LAN printer set in the preset, plus the printers of the signed-in Creality Cloud account | CFS ("Enable CFS") |
 | Markforged | Eiger's print panel | Eiger organization printers (state, material, queue) | none (material comes from the Eiger settings preset) |
+| Snapmaker (U1 only) | Snapmaker Orca's send page | LAN printer set in the preset, plus the printers of the signed-in Snapmaker ID | none |
 
 ## Pieces
 
 - `GUI/VendorSendDialog.*`: `current_send_vendor()` (vendor of the selected preset), the backend interface `VendorSendBackend`, the backend registry, and one dialog class that takes each vendor's colours and layout. The dialog only collects choices: printer, file name, options, slot mapping.
-- `GUI/VendorSendBackends.cpp`: the Elegoo, Creality and Markforged backends. A backend lists printers and slots (on a worker thread), declares its options, and turns the choices into a `PrintHostJob`.
+- `GUI/VendorSendBackends.cpp`: the Elegoo, Creality, Markforged and Snapmaker backends. A backend lists printers and slots (on a worker thread), declares its options, and turns the choices into a `PrintHostJob`.
 - `Plater::send_to_vendor()`: builds the job summary (thumbnail, time, weight, layers, plate filaments), shows the dialog, then exports the G-code and runs the job through the regular upload queue, so progress and errors appear in the upload queue dialog like any other host upload. It returns false when the vendor has no backend, and the caller falls back to the regular flow.
 - `Utils/ElegooCloud.*`: native Elegoo cloud client and `ElegooCloudHost`, the `PrintHost` behind cloud jobs.
 - `GUI/ElegooLoginDialog.*`: Elegoo account sign-in.
 - `GUI/ElegooPrintSendDialog.*`: the Elegoo dialog. It hosts ElegooSlicer's own print-send page, copied with its scripts and styles into `resources/web/elegoo/` (AGPL, from ElegooSlicer 1.5.3), and answers the page's IPC requests the way ElegooSlicer's `PrintSendDialogEx` does (`request_printer_list`, `request_print_task`, `request_mms_info`, `get_current_bed_type`, `start_upload`, and the `cancel_print` / `expand_window` events), with the printers, Canvas slots and job of the Elegoo backend. Without a WebView runtime the built-in dialog is used.
 - `Utils/MarkforgedEiger.*`: Eiger REST client and `MarkforgedEigerHost`.
 - Creality Cloud jobs use `CrealityCloudHost` (in `VendorSendBackends.cpp`) over the `Utils/CrealityCloud` client: upload, the self-test flag, then `addSingleTask` with the CFS mapping. The session is the one the Creality Cloud account agent keeps (`CrealityCloud::SessionStore`).
+- Snapmaker cloud jobs use `SnapmakerCloudHost` (in `VendorSendBackends.cpp`) over the `Utils/SnapmakerCloud` client: upload to Snapmaker's storage, then the print command over Snapmaker's broker (see [snapmaker-cloud.md](snapmaker-cloud.md)).
 
 Other vendors plug in with `register_vendor_send_backend(SendVendor::X, factory)`. A factory returns null to leave a printer on the regular flow.
 

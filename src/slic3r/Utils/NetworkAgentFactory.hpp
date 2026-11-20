@@ -9,6 +9,7 @@
 #include "BBLCloudServiceAgent.hpp"
 #include "BBLNetworkPlugin.hpp"
 #include "CrealityCloudServiceAgent.hpp"
+#include "SnapmakerCloudServiceAgent.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include <memory>
 #include <string>
@@ -173,6 +174,8 @@ public:
             return std::make_shared<BBLCloudServiceAgent>();
         } else if (provider == CREALITY_CLOUD_PROVIDER) {
             return std::make_shared<CrealityCloudServiceAgent>(log_dir);
+        } else if (provider == SNAPMAKER_CLOUD_PROVIDER) {
+            return std::make_shared<SnapmakerCloudServiceAgent>(log_dir);
         }
         return nullptr;
     }

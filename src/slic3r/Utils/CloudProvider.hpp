@@ -11,5 +11,7 @@ static const std::string BBL_CLOUD_PROVIDER("bbl");
 static const std::string ELEGOO_CLOUD_PROVIDER("elegoo");
 // Unified Slicer: Creality Cloud account (api.crealitycloud.com), likewise separate.
 static const std::string CREALITY_CLOUD_PROVIDER("creality");
+// Unified Slicer: Snapmaker ID account (id.snapmaker.com / api.snapmaker.com), likewise separate.
+static const std::string SNAPMAKER_CLOUD_PROVIDER("snapmaker");
 
 } // namespace Slic3r

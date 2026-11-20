@@ -49,6 +49,7 @@ wxString provider_purpose(const std::string& id)
         {"bbl", L("Bambu Lab printers and MakerWorld")},
         {"elegoo", L("Elegoo printers and Nexprint")},
         {"creality", L("Creality Cloud printers")},
+        {"snapmaker", L("Snapmaker printers")},
         {"markforged", L("Markforged printers (Eiger)")},
     };
     const auto it = purposes.find(id);
@@ -190,6 +191,14 @@ void AccountsPanel::rebuild()
         row.available          = [wp] { auto s = wp.lock(); return s && s->is_available(); };
         row.unavailable_reason = [wp] { auto s = wp.lock(); return s ? s->unavailable_reason() : wxString(); };
         row.install            = [wp](wxWindow* parent) { if (auto s = wp.lock()) s->install_or_enable(parent); };
+        add_row(std::move(row));
+    }
+    {
+        Row row;
+        row.name         = "Snapmaker Space";
+        row.purpose      = _L("Signs in on its own page on the Home tab");
+        row.action_label = _L("Open");
+        row.sign_in      = [](wxWindow*) { show_model_site("snapmaker"); };
         add_row(std::move(row));
     }
     {
