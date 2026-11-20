@@ -500,9 +500,10 @@ jobs:
       run: |
         d=$(ls -d .flatpak-builder/build/OrcaSlicer-* | tail -1)
         find "$d/build_flatpak" -mindepth 1 -maxdepth 1 ! -name tests -exec rm -rf {} +
-        # Strip debug info (the SDK builds with -g, only the app gets stripped);
+        # Strip debug info (the SDK builds with -g, only the app gets stripped) but keep the
+        # symbol table, so the backtraces unit_tests_flatpak.yml prints name each frame;
         # the bounds checks are compiled in, so a stripped exe still catches them.
-        find "$d/build_flatpak/tests" -type f -perm -u+x -exec strip --strip-unneeded {} + 2>/dev/null || true
+        find "$d/build_flatpak/tests" -type f -perm -u+x -exec strip --strip-debug {} + 2>/dev/null || true
         # At runtime the tests read tests/ (TEST_DATA_DIR), scripts/, and under
         # resources/ the shipped profiles (PROFILES_DIR), the printers/ maps, the
         # SVG infill patterns (infill/), and the icon SVGs (NativeCommands icon
