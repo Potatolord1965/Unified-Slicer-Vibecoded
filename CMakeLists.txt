@@ -1366,6 +1366,8 @@ endif ()
 set (CPACK_PACKAGE_DESCRIPTION_SUMMARY "Unified Slicer: OrcaSlicer with non-planar printing, Elegoo and Bambu printers, and filament tracking")
 set (CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/Potatolord1965/Unified-Slicer-Vibecoded")
 set (CPACK_PACKAGE_INSTALL_DIRECTORY ${CPACK_PACKAGE_NAME})
+# CPack only picks the 64-bit Program Files for cl.exe builds; the clang-cl builds need it spelled out.
+set (CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
 set (CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}/resources/images\\\\OrcaSlicer.ico")
 set (CPACK_NSIS_MUI_ICON "${CPACK_PACKAGE_ICON}")
 set (CPACK_NSIS_MUI_UNIICON "${CPACK_PACKAGE_ICON}")
@@ -1377,7 +1379,11 @@ set (CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 set (CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
 # set (CPACK_NSIS_MODIFY_PATH "ON")
 set(CPACK_PACKAGE_EXECUTABLES "${SLIC3R_APP_EXE};${SLIC3R_APP_NAME}")
-set(CPACK_CREATE_DESKTOP_LINKS "${SLIC3R_APP_EXE}")
+# CPACK_CREATE_DESKTOP_LINKS only takes effect through the "modify PATH" options page, which this
+# installer does not show, so the desktop shortcut is created and removed explicitly. Single quotes
+# keep the NSIS strings intact through CPackConfig.cmake, which CPack writes unescaped.
+set(CPACK_NSIS_CREATE_ICONS_EXTRA "CreateShortCut '$DESKTOP\\\\${SLIC3R_APP_NAME}.lnk' '$INSTDIR\\\\${SLIC3R_APP_EXE}.exe'")
+set(CPACK_NSIS_DELETE_ICONS_EXTRA "Delete '$DESKTOP\\\\${SLIC3R_APP_NAME}.lnk'")
 set (CPACK_RESOURCE_FILE_LICENSE ${CMAKE_SOURCE_DIR}/LICENSE.txt) # must also include in install command
 
 # CI release builds Authenticode-sign the installer as makensis builds it: the payload before it is

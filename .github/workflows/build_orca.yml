@@ -381,14 +381,20 @@ jobs:
             tr '\n' '\0' | xargs -0 codesign --force --sign -
           codesign --force --sign - "$dmg_dir/$app_name.app"
           codesign --verify --deep --strict --verbose=2 "$dmg_dir/$app_name.app"
-          ln -sfn /Applications "$dmg_dir/Applications"
-          cat > "$dmg_dir/First launch.txt" <<'TXT'
-          1. Drag the app into Applications.
-          2. Open it. macOS will say it cannot verify the developer.
-          3. Open System Settings > Privacy & Security, scroll down and click "Open Anyway".
-          You only need to do this once.
-          TXT
-          create_dmg "$app_name" "$dmg_dir" OrcaSlicer_Mac_universal_${{ env.ver }}.dmg
+          # dmgbuild lays out the Finder window (app, arrow, Applications shortcut) without
+          # driving Finder, which CI runners cannot script. A plain DMG is the fallback.
+          dmg=OrcaSlicer_Mac_universal_${{ env.ver }}.dmg
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          if "$RUNNER_TEMP/dmgbuild/bin/pip" install -q dmgbuild==1.6.7 &&
+             "$RUNNER_TEMP/dmgbuild/bin/dmgbuild" -s scripts/dmg/settings.py \
+               -D app="$dmg_dir/$app_name.app" -D background=scripts/dmg/background.png \
+               "$app_name" "$dmg"; then
+            echo "Built $dmg with dmgbuild"
+          else
+            echo "::warning::dmgbuild failed; building a plain DMG."
+            ln -sfn /Applications "$dmg_dir/Applications"
+            create_dmg "$app_name" "$dmg_dir" "$dmg"
+          fi
 
       # Delete the per-arch bundles only after signing/DMG creation succeeded, so a
       # failed run keeps them available for a re-run instead of forcing a full rebuild.
@@ -607,7 +613,7 @@ jobs:
           $paths = @("$env:BUILD_DIR/OrcaSlicer")
           $validator = 'build/src/Release/OrcaSlicer_profile_validator.exe'
           if (Test-Path $validator) { $paths += $validator }
-          $installer = Get-ChildItem "$env:BUILD_DIR/OrcaSlicer_Windows_Installer_*.exe" | Select-Object -First 1
+          $installer = Get-ChildItem "$env:BUILD_DIR/UnifiedSlicer_Windows_Installer_*.exe" | Select-Object -First 1
           if ($installer) {
             $payload = Join-Path $env:RUNNER_TEMP 'installer-payload'
             & 'C:/Program Files/7-Zip/7z.exe' x -y "-o$payload" $installer.FullName | Out-Null
@@ -642,7 +648,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: OrcaSlicer_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}
-          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/OrcaSlicer*.exe
+          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/UnifiedSlicer_Windows_Installer_*.exe
+          if-no-files-found: error
 
       - name: Upload artifacts Win PDB
         if: runner.os == 'Windows' && inputs.arch != 'arm64' && !vars.SELF_HOSTED
