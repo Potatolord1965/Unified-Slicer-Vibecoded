@@ -3,6 +3,7 @@
 #include "LocalPrintersProvider.hpp"
 
 #include <memory>
+#include <wx/colour.h>
 
 #include "slic3r/Utils/CloudProvider.hpp"
 
@@ -22,6 +23,9 @@ void CloudPrinterProviders::register_builtin()
     add(std::make_shared<ElegooCloudProvider>());
     // Creality: cloud agent "creality_cloud" with account "creality".
     add(std::make_shared<CrealityCloudProvider>());
+    // Snapmaker: cloud agent "snapmaker_cloud" with account "snapmaker" (Snapmaker ID).
+    add(std::make_shared<PrinterAgentCloudProvider>("snapmaker", "Snapmaker", 35, "snapmaker_cloud", "snapmaker",
+                                                    wxColour("#0F8BD6")));
     // Markforged: Eiger cloud agent "markforged_eiger", API keys.
     add(std::make_shared<MarkforgedCloudProvider>());
     // USB & LAN: print-host presets (OctoPrint, Moonraker, ...) and USB printers no service claims.

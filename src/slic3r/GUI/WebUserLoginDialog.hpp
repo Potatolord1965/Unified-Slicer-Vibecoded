@@ -73,6 +73,13 @@ private:
     wxTimer *m_timer { nullptr };
     void     OnTimer(wxTimerEvent &event);
 
+    // Snapmaker ID hands its token back in a redirect URL or in the OAuth callback page rather
+    // than through a script message, so the dialog watches the page for it.
+    wxTimer *m_token_timer { nullptr };
+    bool     m_token_handled { false };
+    void     check_token_redirect(const wxString &url);
+    void     finish_token_login(const std::string &token, bool china);
+
 private:
     wxString   TargetUrl;
     wxWebView *m_browser;

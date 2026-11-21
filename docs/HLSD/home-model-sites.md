@@ -1,7 +1,7 @@
 # Home tab: model sites
 
-The Home tab's nav column (`resources/web/homepage`) lists four model sites under **Models**:
-Unlayered Universe, MakerWorld, Nexprint and Thingiverse. Picking one shows that site in a native
+The Home tab's nav column (`resources/web/homepage`) lists five model sites under **Models**:
+Unlayered Universe, MakerWorld, Nexprint, Snapmaker Space and Thingiverse. Picking one shows that site in a native
 web view beside the nav column (`WebViewPanel::set_model_site`), the same side-by-side layout the
 OrcaCloud pane uses. The homepage is then sized to the nav column only.
 
@@ -11,7 +11,7 @@ Each site has its own `ModelSiteView` (`src/slic3r/GUI/ModelSiteView.{hpp,cpp}`)
 the site's web view and, for MakerWorld, its toolbar. Views are kept for the life of the Home tab,
 so switching sites never reloads a page and each keeps its own history and sign-in.
 
-Once the homepage has loaded, `WebViewPanel::preload_model_sites` creates the four views hidden
+Once the homepage has loaded, `WebViewPanel::preload_model_sites` creates the views hidden
 and loads one site per timer tick (800 ms apart), so a model tab opens on a page that is already
 there and the views do not all start loading together with the homepage.
 
@@ -22,6 +22,7 @@ there and the views do not all start loading together with the homepage.
 | Unlayered Universe | Unlayered Slicer's Universe tab: `https://unlayered3d.com/universe?host=unlayered-slicer` (override: app config `model_site_unlayered_url`) | The subset of Unlayered Slicer's web-app bridge (protocol v1, `WEB_APP_BRIDGE.md` in its source) the page uses: `slicer.getInfo`, `slicer.openProjectFromUrl`, `slicer.selectPreset` (printer only) and `slicer.installPrinterPreset`. Same shim (`window.__slicerBridge`), envelope, per-document token and error codes, so the page runs unchanged. |
 | MakerWorld | Bambu Studio's Online Models: `{host}{lang}/studio/webview?from=bambustudio`, with its Back / Refresh / Open in browser toolbar | Signed in to Bambu, the first load goes through `{host}api/sign-in/ticket` with a bind ticket from the Bambu network plug-in. Page commands (`makerworld_model_open`, ...) go to `GUI_App::handle_web_request`, as in Bambu Studio. |
 | Nexprint | ElegooSlicer's Online Models: `https://www.nexprint.com/elegooSlicer` (`nexprint.cn` for the China region), with its user agent and `language`, `region`, `theme`, `deviceId` parameters | ElegooSlicer's page protocol (`report.*` requests, `client.*` events through `HandleStudio`) answered from the Elegoo account in `ElegooCloud`; `report.notLogged` opens the Elegoo sign-in. |
+| Snapmaker Space | The plain site, `https://space.snapmaker.com`, with the toolbar | None. Its own Snapmaker sign-in, kept in the pane. |
 | Thingiverse | The plain site | None. |
 
 Pop-ups a site opens (`window.open`, `target=_blank`), sign-in windows above all, open in an app

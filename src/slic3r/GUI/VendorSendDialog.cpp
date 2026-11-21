@@ -54,6 +54,8 @@ static SendVendor vendor_from_name(std::string name)
         return SendVendor::Creality;
     if (name.find("markforged") != std::string::npos)
         return SendVendor::Markforged;
+    if (name.find("snapmaker") != std::string::npos)
+        return SendVendor::Snapmaker;
     return SendVendor::None;
 }
 
@@ -144,6 +146,19 @@ Theme theme_for(SendVendor vendor, bool dark)
         t.error       = wxColour("#D93025");
         t.track_off   = dark ? wxColour("#4A4A4A") : wxColour("#BDBDBD");
         t.radius      = 2;
+        break;
+    case SendVendor::Snapmaker: // Snapmaker Orca send page
+        t.title       = _L("Send Print Job");
+        t.bg          = dark ? wxColour("#1E1F22") : wxColour("#FFFFFF");
+        t.panel       = dark ? wxColour("#2A2C30") : wxColour("#F4F6F8");
+        t.text        = dark ? wxColour("#F0F0F0") : wxColour("#1F2329");
+        t.subtext     = dark ? wxColour("#9AA0A6") : wxColour("#6B7280");
+        t.border      = dark ? wxColour("#3A3D42") : wxColour("#DDE1E6");
+        t.accent      = wxColour("#0F8BD6");
+        t.accent_text = *wxWHITE;
+        t.error       = wxColour("#F04438");
+        t.track_off   = dark ? wxColour("#4A4D52") : wxColour("#C2C7CE");
+        t.radius      = 6;
         break;
     default:
         t.title       = _L("Print");
@@ -510,7 +525,7 @@ protected:
 private:
     std::string cfg_key(const std::string& key) const
     {
-        static const char* names[] = {"none", "bambu", "elegoo", "creality", "markforged"};
+        static const char* names[] = {"none", "bambu", "elegoo", "creality", "markforged", "snapmaker"};
         return std::string(names[static_cast<int>(m_vendor)]) + "_" + key;
     }
     std::string recall(const std::string& key, const std::string& def) const

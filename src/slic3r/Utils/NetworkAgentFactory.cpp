@@ -11,6 +11,7 @@
 #include "slic3r/plugin/pluginTypes/printerAgent/PrinterAgentPluginCapability.hpp"
 #include "CrealityPrintAgent.hpp"
 #include "CrealityCloudPrinterAgent.hpp"
+#include "SnapmakerCloudPrinterAgent.hpp"
 #include <algorithm>
 #include <boost/log/trivial.hpp>
 #include <chrono>
@@ -218,6 +219,10 @@ void NetworkAgentFactory::register_all_agents()
     register_agent<CrealityCloudPrinterAgent>();
     set_agent_cloud_provider(CrealityCloudPrinterAgent::AGENT_ID, CREALITY_CLOUD_PROVIDER);
 
+    // Unified Slicer: printers on a Snapmaker account, signed in to under the "snapmaker" provider.
+    register_agent<SnapmakerCloudPrinterAgent>();
+    set_agent_cloud_provider(SnapmakerCloudPrinterAgent::AGENT_ID, SNAPMAKER_CLOUD_PROVIDER);
+
     // Keep BBL as a built-in option. Python printer-agent plugins with the
     // same AgentInfo ID are listed separately under the plugin registry key.
     {
@@ -253,10 +258,11 @@ std::unique_ptr<NetworkAgent> create_agent_from_config(const std::string& log_di
             orca_cloud->configure_urls(app_config);
         }
 
-        // Initialize third-party cloud agents from config. The Creality account is built in, so it is always offered.
+        // Initialize third-party cloud agents from config. The Creality and Snapmaker accounts are built in, so they are always offered.
         auto providers = app_config->get_cloud_providers();
-        if (std::find(providers.begin(), providers.end(), CREALITY_CLOUD_PROVIDER) == providers.end())
-            providers.push_back(CREALITY_CLOUD_PROVIDER);
+        for (const std::string& builtin : {CREALITY_CLOUD_PROVIDER, SNAPMAKER_CLOUD_PROVIDER})
+            if (std::find(providers.begin(), providers.end(), builtin) == providers.end())
+                providers.push_back(builtin);
         for (const auto& provider : providers) {
             if (provider == ORCA_CLOUD_PROVIDER)
                 continue; // Primary agent already created above

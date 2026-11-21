@@ -7,6 +7,7 @@
 //   * Elegoo     -> ElegooSlicer's print-send dialog (Elegoo cloud and LAN printers, Canvas mapping)
 //   * Creality   -> Creality Print's send dialog (LAN printer, CFS mapping)
 //   * Markforged -> Eiger's print panel (printer list, settings preset, print now / queue / backlog)
+//   * Snapmaker  -> Snapmaker Orca's send page (LAN printer, U1 printers of the Snapmaker ID account)
 // Bambu Lab printers keep SelectMachineDialog, which already is Bambu Studio's dialog.
 //
 // The dialog only collects the user's choices. A VendorSendBackend turns them into a PrintHostJob,
@@ -43,7 +44,7 @@ namespace Slic3r {
 class DynamicPrintConfig;
 namespace GUI {
 
-enum class SendVendor { None, Bambu, Elegoo, Creality, Markforged };
+enum class SendVendor { None, Bambu, Elegoo, Creality, Markforged, Snapmaker };
 
 // The vendor of the selected printer preset, from its vendor profile (or its name for user presets).
 SendVendor current_send_vendor();

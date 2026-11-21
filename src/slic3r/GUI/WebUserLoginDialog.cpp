@@ -17,6 +17,7 @@
 #include "slic3r/GUI/wxExtensions.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
+#include "slic3r/Utils/SnapmakerCloud.hpp"
 #include "libslic3r_version.h"
 
 #include <string>
@@ -200,11 +201,23 @@ ZUserLogin::ZUserLogin(std::shared_ptr<ICloudServiceAgent> cloud_agent)
         SetSize(pSize);
 
         CentreOnParent();
+
+        if (m_cloud_agent->get_id() == SNAPMAKER_CLOUD_PROVIDER) {
+            // Some sign-in steps change the page without a navigation event, so poll the URL too.
+            m_token_timer = new wxTimer(this);
+            Bind(wxEVT_TIMER, [this](wxTimerEvent &) { check_token_redirect(m_browser->GetCurrentURL()); }, m_token_timer->GetId());
+            m_token_timer->Start(500);
+        }
     }
     wxGetApp().UpdateDlgDarkUI(this);
 }
 
 ZUserLogin::~ZUserLogin() {
+    if (m_token_timer) {
+        m_token_timer->Stop();
+        delete m_token_timer;
+        m_token_timer = nullptr;
+    }
     if (m_timer != NULL) {
         m_timer->Stop();
         delete m_timer;
@@ -271,8 +284,38 @@ void ZUserLogin::OnIdle(wxIdleEvent &WXUNUSED(evt))
 void ZUserLogin::OnNavigationRequest(wxWebViewEvent &evt)
 {
     //wxLogMessage("%s", "Navigation request to '" + evt.GetURL() + "'(target='" + evt.GetTarget() + "')");
+    check_token_redirect(evt.GetURL());
+    if (m_token_handled)
+        evt.Veto();
 
     UpdateState();
+}
+
+void ZUserLogin::check_token_redirect(const wxString &url)
+{
+    if (m_token_handled || !m_cloud_agent || m_cloud_agent->get_id() != SNAPMAKER_CLOUD_PROVIDER)
+        return;
+    const std::string u     = into_u8(url);
+    const bool        china = u.find("snapmaker.cn") != std::string::npos;
+    const std::string token = SnapmakerCloud::token_from_url(u);
+    if (!token.empty()) {
+        finish_token_login(token, china);
+        return;
+    }
+    // The OAuth callback page shows {"data":{"access_token":...}} as its body: hand it back through the title.
+    if (u.find("/api/oauth2/callback/") != std::string::npos)
+        RunScript("document.title='SMOAUTH:'+(document.body?document.body.innerText:'');");
+}
+
+void ZUserLogin::finish_token_login(const std::string &token, bool china)
+{
+    m_token_handled = true;
+    if (m_token_timer)
+        m_token_timer->Stop();
+    const std::string message_json = json{{"command", "user_login"}, {"data", {{"token", token}, {"region", china ? "China" : "Global"}}}}.dump();
+    EndModal(wxID_OK);
+    const auto provider = m_cloud_agent->get_id();
+    wxTheApp->CallAfter([message_json, provider]() { wxGetApp().handle_script_message(message_json, provider); });
 }
 
 /**
@@ -299,6 +342,7 @@ void ZUserLogin::OnDocumentLoaded(wxWebViewEvent &evt)
         m_networkOk = true;
         // wxLogMessage("%s", "Document loaded; url='" + evt.GetURL() + "'");
     }
+    check_token_redirect(tmpUrl);
 
     UpdateState();
 }
@@ -325,6 +369,12 @@ void ZUserLogin::OnTitleChanged(wxWebViewEvent &evt)
 {
     // SetTitle(evt.GetString());
     // wxLogMessage("%s", "Title changed; title='" + evt.GetString() + "'");
+    const wxString title = evt.GetString();
+    if (!m_token_handled && title.StartsWith("SMOAUTH:")) {
+        const std::string token = SnapmakerCloud::token_from_callback_body(into_u8(title.Mid(8)));
+        if (!token.empty())
+            finish_token_login(token, into_u8(m_browser->GetCurrentURL()).find("snapmaker.cn") != std::string::npos);
+    }
 }
 
 void ZUserLogin::OnFullScreenChanged(wxWebViewEvent &evt)
