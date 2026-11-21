@@ -3,6 +3,7 @@
 #include "LocalPrintersProvider.hpp"
 
 #include <memory>
+#include <wx/colour.h>
 
 #include "slic3r/Utils/CloudProvider.hpp"
 
