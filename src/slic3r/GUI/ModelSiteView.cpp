@@ -426,7 +426,7 @@ private:
 
 const std::vector<std::string>& ModelSiteView::sites()
 {
-    static const std::vector<std::string> ids{"unlayered", "makerworld", "nexprint", "thingiverse"};
+    static const std::vector<std::string> ids{"unlayered", "makerworld", "nexprint", "snapmaker", "thingiverse"};
     return ids;
 }
 
@@ -440,7 +440,7 @@ ModelSiteView::ModelSiteView(wxWindow* parent, const std::string& site)
     : wxPanel(parent, wxID_ANY), m_site(site), m_alive(std::make_shared<bool>(true))
 {
     auto* sizer = new wxBoxSizer(wxVERTICAL);
-    if (m_site == "makerworld" || m_site == "thingiverse") {
+    if (m_site == "makerworld" || m_site == "snapmaker" || m_site == "thingiverse") {
         create_toolbar();
         sizer->Add(m_toolbar, 0, wxEXPAND | wxALL, FromDIP(8));
     }
@@ -533,6 +533,8 @@ wxString ModelSiteView::home_url() const
         url += "&deviceId=" + elegoo_device_id();
         return wxString::FromUTF8(url);
     }
+    if (m_site == "snapmaker")
+        return "https://space.snapmaker.com";
     if (m_site == "thingiverse")
         return "https://www.thingiverse.com";
     return {};
