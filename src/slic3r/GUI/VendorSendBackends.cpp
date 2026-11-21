@@ -79,6 +79,7 @@ public:
         m_has_lan = host_type_of(cfg) == htElegooLink && !print_host_of(cfg).empty();
     }
 
+    std::string provider_id() const override { return "elegoo"; }
     bool     needs_sign_in() const override { return true; }
     bool     signed_in() const override { return ElegooCloud::instance().signed_in(); }
     bool     has_local_printers() const override { return m_has_lan; }
@@ -415,6 +416,7 @@ public:
         m_has_lan = host_type_of(cfg) == htCrealityPrint && !print_host_of(cfg).empty();
     }
 
+    std::string provider_id() const override { return "creality"; }
     bool     needs_sign_in() const override { return true; }
     bool     signed_in() const override { return CrealityCloud::SessionStore::get().valid(); }
     bool     has_local_printers() const override { return m_has_lan; }
@@ -659,6 +661,7 @@ class MarkforgedBackend : public VendorSendBackend
 public:
     explicit MarkforgedBackend(const DynamicPrintConfig& cfg) : m_keys(Eiger::keys_for(&cfg)) {}
 
+    std::string provider_id() const override { return "markforged"; }
     bool     needs_sign_in() const override { return true; }
     bool     signed_in() const override { return !m_keys.empty(); }
     bool     sign_in(wxWindow* parent) override

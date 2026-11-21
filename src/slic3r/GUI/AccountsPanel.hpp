@@ -48,9 +48,16 @@ private:
         std::function<bool()>          available;
         std::function<wxString()>      unavailable_reason;
         std::function<void(wxWindow*)> install;
+        // A service signed in to several accounts: while signed in the button adds one more.
+        std::function<void(wxWindow*)> add_account;
+        // Optional second button (an account's Sign out), and indentation for an account row.
+        wxString                       secondary_label;
+        std::function<void()>          secondary;
+        bool                           indent{false};
 
         wxStaticText* status{nullptr};
         Button*       button{nullptr};
+        Button*       second_button{nullptr};
         wxString      shown; // state last shown, so unchanged rows aren't relaid out
     };
 
@@ -59,12 +66,16 @@ private:
     void add_row(Row row);
     void update_rows();
     void update_row(Row& row);
+    // The saved accounts of every service signed in to several, as one string.
+    std::string accounts_signature() const;
 
     wxBoxSizer*      m_list{nullptr};
     Button*          m_phone_button{nullptr};
     std::vector<Row> m_rows;
+    std::string      m_accounts_shown; // the saved accounts the rows show, to rebuild when they change
     wxTimer          m_timer;
     int              m_listener{0};
+    int              m_busy{0}; // a button's action is running
 };
 
 }} // namespace Slic3r::GUI

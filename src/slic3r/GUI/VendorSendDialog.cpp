@@ -28,6 +28,8 @@
 #include <wx/wrapsizer.h>
 
 #include "GUI_App.hpp"
+#include "slic3r/GUI/DeviceHub/CloudPrinterProvider.hpp"
+#include "MsgDialog.hpp"
 #include "I18N.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Preset.hpp"
@@ -593,6 +595,14 @@ private:
             m_account_btn->SetCursor(wxCursor(wxCURSOR_HAND));
             m_account_btn->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent&) { on_account_link(); });
             footer->Add(m_account_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+            // Several accounts of the service: pick the one to print with.
+            m_switch_btn = make_text(this, _L("Switch account"), m_theme.accent);
+            m_switch_btn->SetCursor(wxCursor(wxCURSOR_HAND));
+            m_switch_btn->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent& e) {
+                e.Skip();
+                CallAfter([this] { on_switch_account(); });
+            });
+            footer->Add(m_switch_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
             update_account();
         }
         footer->AddStretchSpacer();
@@ -659,13 +669,53 @@ private:
         const bool in = m_backend.signed_in();
         m_account->SetLabel(in ? wxString::Format(_L("Signed in as %s"), m_backend.account_label()) : _L("Not signed in"));
         m_account_btn->SetLabel(in ? _L("Sign out") : _L("Sign in"));
+        CloudPrinterProviderPtr provider = account_provider();
+        m_switch_btn->Show(in && provider && provider->accounts().size() > 1);
         Layout();
+    }
+
+    CloudPrinterProviderPtr account_provider() const
+    {
+        const std::string id = m_backend.provider_id();
+        if (id.empty())
+            return nullptr;
+        CloudPrinterProviders::register_builtin();
+        CloudPrinterProviderPtr provider = CloudPrinterProviders::get(id);
+        return provider && provider->supports_multiple_accounts() ? provider : nullptr;
+    }
+
+    void on_switch_account()
+    {
+        CloudPrinterProviderPtr provider = account_provider();
+        if (!provider)
+            return;
+        std::string chosen;
+        wxMenu      menu;
+        for (const CloudAccountInfo& a : provider->accounts()) {
+            wxMenuItem* item = menu.AppendCheckItem(wxID_ANY, a.label);
+            item->Check(a.active);
+            const std::string key = a.key;
+            menu.Bind(wxEVT_MENU, [&chosen, key](wxCommandEvent&) { chosen = key; }, item->GetId());
+        }
+        PopupMenu(&menu, m_switch_btn->GetPosition() + wxPoint(0, m_switch_btn->GetSize().y));
+        if (chosen.empty())
+            return;
+        if (!provider->switch_account(chosen))
+            MessageDialog(this, _L("This account's sign-in no longer works. Sign out of it and sign in again."), provider->display_name(),
+                          wxOK | wxICON_WARNING)
+                .ShowModal();
+        update_account();
+        load_printers();
     }
 
     void on_account_link()
     {
         if (m_backend.signed_in()) {
-            m_backend.sign_out();
+            // Several accounts: the provider signs this one out and makes the next one active.
+            if (CloudPrinterProviderPtr provider = account_provider())
+                provider->sign_out();
+            else
+                m_backend.sign_out();
             update_account();
             if (m_backend.has_local_printers())
                 load_printers();
@@ -1136,6 +1186,7 @@ private:
     wxStaticText*         m_error{nullptr};
     wxStaticText*         m_account{nullptr};
     wxStaticText*         m_account_btn{nullptr};
+    wxStaticText*         m_switch_btn{nullptr};
     FlatButton*           m_print_btn{nullptr};
     FlatButton*           m_send_btn{nullptr};
     Toggle*               m_upload_and_print{nullptr};

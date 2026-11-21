@@ -124,6 +124,10 @@ class ElegooCloud
 {
 public:
     static ElegooCloud& instance();
+    // A client for a saved account other than the signed-in one (several Elegoo accounts): it
+    // neither reads nor writes the saved sign-in, so read refreshed tokens back with account().
+    // Only for the REST calls (printers, state, Canvas); printing and live status go through instance().
+    static std::unique_ptr<ElegooCloud> for_account(const ElegooCloudAccount& account);
 
     bool               signed_in() const;
     ElegooCloudAccount account() const;
@@ -184,6 +188,7 @@ public:
 
 private:
     ElegooCloud();
+    explicit ElegooCloud(const ElegooCloudAccount& account);
     struct LiveSession;
     // Takes m_rtm_mutex for a live call; throws when a print send keeps it longer than a few seconds.
     std::unique_lock<std::timed_mutex> live_lock();
@@ -207,6 +212,7 @@ private:
     // Serializes token refreshes; m_mutex is never held across a network call.
     std::mutex m_refresh_mutex;
     ElegooCloudAccount           m_account;
+    bool                         m_detached{false}; // for_account(): never saved
     // One RTM session per account at a time: the cloud allows a single messaging login.
     // Held by a print send for the whole printer download (one messaging login per account), so
     // the live calls wait for it only briefly and then report that a send is in progress.

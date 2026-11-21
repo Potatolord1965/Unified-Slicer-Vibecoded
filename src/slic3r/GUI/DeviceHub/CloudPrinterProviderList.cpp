@@ -21,8 +21,7 @@ void CloudPrinterProviders::register_builtin()
     // Elegoo: Elegoo cloud account (native) plus the CC2 LAN agent for printers on the local network.
     add(std::make_shared<ElegooCloudProvider>());
     // Creality: cloud agent "creality_cloud" with account "creality".
-    add(std::make_shared<PrinterAgentCloudProvider>("creality", "Creality", 30, "creality_cloud", "creality",
-                                                    wxColour("#D8762C")));
+    add(std::make_shared<CrealityCloudProvider>());
     // Markforged: Eiger cloud agent "markforged_eiger", API keys.
     add(std::make_shared<MarkforgedCloudProvider>());
     // USB & LAN: print-host presets (OctoPrint, Moonraker, ...) and USB printers no service claims.
