@@ -17,6 +17,8 @@ struct BambuSession
     std::string refresh_token;
     std::string user_id;
     std::string name;
+    // The whole "user_login" message, to sign the plugin in to this account again (account switching).
+    std::string login_message;
 };
 void         remember_bambu_login(const std::string& user_login_message);
 void         forget_bambu_login();

@@ -180,7 +180,8 @@ void remember_bambu_login(const std::string& user_login_message)
         }
         if (s.access_token.empty() || s.user_id.empty())
             return;
-        const json out = {{"access_token", s.access_token}, {"refresh_token", s.refresh_token}, {"user_id", s.user_id}, {"name", s.name}};
+        const json out = {{"access_token", s.access_token}, {"refresh_token", s.refresh_token}, {"user_id", s.user_id}, {"name", s.name},
+                          {"login_message", user_login_message}};
         const std::string sealed = SecretBox::seal(out.dump(), "bambu");
 
         std::lock_guard<std::mutex> lock(bambu_mutex());
@@ -217,6 +218,7 @@ BambuSession bambu_session()
         s.refresh_token = json_string(j, "refresh_token");
         s.user_id       = json_string(j, "user_id");
         s.name          = json_string(j, "name");
+        s.login_message = json_string(j, "login_message");
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(warning) << "PhoneSignIn: could not read the Bambu session: " << e.what();
     }

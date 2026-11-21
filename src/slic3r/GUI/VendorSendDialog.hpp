@@ -125,6 +125,9 @@ public:
     virtual bool     sign_in(wxWindow* /*parent*/) { return true; }
     virtual void     sign_out() {}
     virtual wxString account_label() const { return {}; }
+    // The Device tab service (CloudPrinterProvider id) whose accounts this backend uses, so the
+    // dialog can switch between several signed-in accounts; empty for none.
+    virtual std::string provider_id() const { return {}; }
     // Printers that can be listed without signing in (e.g. a LAN printer from the preset).
     virtual bool     has_local_printers() const { return false; }
     // Whether the printer maps project filaments to its own slots (Eiger takes materials from its preset).

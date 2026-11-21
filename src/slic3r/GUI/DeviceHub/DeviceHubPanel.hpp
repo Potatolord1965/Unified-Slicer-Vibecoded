@@ -52,6 +52,7 @@ private:
     void rebuild_cards();
     void apply_view();
     void open_printer(const std::string& provider_id, const std::string& printer_id);
+    void show_accounts_menu();
     void on_activated(wxDataViewEvent& evt);
 
     CloudPrinterProviderPtr m_provider; // null: all providers
@@ -66,6 +67,7 @@ private:
     wxDataViewListCtrl* m_list{nullptr};
     wxScrolledWindow*   m_cards{nullptr};
     bool                m_card_view{false};
+    bool                m_account_column{false};
     wxStaticText*       m_empty{nullptr};
     wxTimer             m_timer;
     wxColour            m_accent;

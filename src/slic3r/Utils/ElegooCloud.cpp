@@ -757,6 +757,13 @@ struct ElegooCloud::LiveSession
 
 ElegooCloud::ElegooCloud() { load(); }
 
+ElegooCloud::ElegooCloud(const ElegooCloudAccount& account) : m_account(account), m_detached(true) {}
+
+std::unique_ptr<ElegooCloud> ElegooCloud::for_account(const ElegooCloudAccount& account)
+{
+    return std::unique_ptr<ElegooCloud>(new ElegooCloud(account));
+}
+
 // At exit the Agora runtime may already be going away: leave a still-open session to the OS.
 ElegooCloud::~ElegooCloud() { (void) m_live.release(); }
 
@@ -993,6 +1000,8 @@ void ElegooCloud::load()
 
 void ElegooCloud::save() const
 {
+    if (m_detached)
+        return;
     const json j = {{"region", m_account.region},           {"access_token", m_account.access_token},
                     {"refresh_token", m_account.refresh_token}, {"access_expire_ms", m_account.access_expire_ms},
                     {"user_id", m_account.user_id},         {"nickname", m_account.nickname},
