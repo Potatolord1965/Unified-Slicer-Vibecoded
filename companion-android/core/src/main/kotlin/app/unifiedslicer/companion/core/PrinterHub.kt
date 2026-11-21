@@ -24,6 +24,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.ConcurrentHashMap
 
 /** Why an account's printers could not be read. */
 data class AccountProblem(val accountId: String, val message: String, val signInExpired: Boolean)
@@ -41,7 +42,8 @@ data class HubSnapshot(
 class PrinterHub(private val ctx: SourceContext, private val factory: (Account, SourceContext) -> PrinterSource = ::createSource) {
     private val lock = Mutex()
     private val sources = LinkedHashMap<String, Pair<Account, PrinterSource>>()
-    private val lastGood = HashMap<String, List<PrinterStatus>>()
+    // Written by the parallel refreshes below.
+    private val lastGood = ConcurrentHashMap<String, List<PrinterStatus>>()
 
     /** Makes the hub follow [accounts]: new ones get a source, removed or edited ones are closed. */
     suspend fun setAccounts(accounts: List<Account>) = lock.withLock {

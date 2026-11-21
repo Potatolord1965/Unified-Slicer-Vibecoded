@@ -24,6 +24,8 @@ import javax.crypto.spec.GCMParameterSpec
 class AccountStore(context: Context) {
     private val file = File(context.filesDir, "accounts.bin")
     private val serializer = ListSerializer(Account.serializer())
+    /** The saved file exists but couldn't be read; see [save]. Declared before [load] runs. */
+    private var unreadable = false
     private val _accounts = MutableStateFlow(load())
     val accounts: StateFlow<List<Account>> = _accounts.asStateFlow()
 
@@ -41,19 +43,35 @@ class AccountStore(context: Context) {
     fun remove(id: String) = save(_accounts.value.filterNot { it.id == id })
 
     private fun save(list: List<Account>) {
-        _accounts.value = list
+        var all = list
+        if (unreadable) {
+            // The Keystore may only have been unavailable for a moment: read the file again and keep
+            // its accounts. Still unreadable, it is kept aside rather than replaced by a list that
+            // lacks every account in it.
+            val saved = runCatching { read() }.getOrNull()
+            if (saved != null) {
+                val ids = list.map { it.id }.toSet()
+                all = saved.filterNot { it.id in ids } + list
+            } else {
+                runCatching { file.copyTo(File(file.path + ".unreadable"), overwrite = false) }
+                    .onFailure { Log.e(TAG, "Could not keep the unreadable accounts file", it) }
+            }
+            unreadable = false
+        }
+        _accounts.value = all
         runCatching {
             val tmp = File(file.path + ".tmp")
-            tmp.writeBytes(encrypt(LenientJson.encodeToString(serializer, list).toByteArray()))
+            tmp.writeBytes(encrypt(LenientJson.encodeToString(serializer, all).toByteArray()))
             if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
         }.onFailure { Log.e(TAG, "Could not save accounts", it) }
     }
 
-    private fun load(): List<Account> = runCatching {
-        if (!file.exists()) return emptyList()
-        LenientJson.decodeFromString(serializer, String(decrypt(file.readBytes())))
-    }.getOrElse {
+    private fun read(): List<Account> =
+        if (!file.exists()) emptyList() else LenientJson.decodeFromString(serializer, String(decrypt(file.readBytes())))
+
+    private fun load(): List<Account> = runCatching { read() }.getOrElse {
         Log.e(TAG, "Could not read saved accounts", it)
+        unreadable = true
         emptyList()
     }
 

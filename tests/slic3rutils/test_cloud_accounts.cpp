@@ -120,8 +120,32 @@ TEST_CASE("Cloud accounts: refreshed tokens of an account not in use are kept", 
     CloudAccountSet set("test", svc.hooks());
     set.add([&svc] { svc.active = "b"; });
 
-    set.update("a", {{"user", "a"}, {"token", "new"}});
+    nlohmann::json before;
+    for (const auto& acc : set.accounts())
+        if (acc.key == "a")
+            before = acc.data;
+    set.update("a", before, {{"user", "a"}, {"token", "new"}});
     for (const auto& acc : set.accounts())
         if (acc.key == "a")
             CHECK(acc.data.value("token", std::string()) == "new");
+}
+
+TEST_CASE("Cloud accounts: a refresh doesn't replace a sign-in saved while it ran", "[CloudAccounts]")
+{
+    TempDataDir    dir;
+    FakeService    svc;
+    svc.active = "a";
+    CloudAccountSet set("test", svc.hooks());
+    set.add([&svc] { svc.active = "b"; });
+
+    nlohmann::json before;
+    for (const auto& acc : set.accounts())
+        if (acc.key == "a")
+            before = acc.data;
+    // The user signed in to "a" again, with a new token, while a fetch refreshed the old one.
+    set.update("a", before, {{"user", "a"}, {"token", "signed in again"}});
+    set.update("a", before, {{"user", "a"}, {"token", "refreshed"}});
+    for (const auto& acc : set.accounts())
+        if (acc.key == "a")
+            CHECK(acc.data.value("token", std::string()) == "signed in again");
 }

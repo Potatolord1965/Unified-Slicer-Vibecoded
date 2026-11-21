@@ -4,6 +4,7 @@
 #include <memory>
 #include <utility>
 
+#include <wx/colour.h>
 #include <wx/defs.h>
 #include <wx/event.h>
 #include <wx/panel.h>
@@ -25,6 +26,7 @@
 #include "slic3r/GUI/Widgets/Label.hpp"
 #include "slic3r/Utils/CloudProvider.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
+#include "slic3r/Utils/SecretBox.hpp"
 
 namespace Slic3r { namespace GUI {
 
@@ -100,6 +102,13 @@ AccountsPanel::AccountsPanel(wxWindow* parent)
     intro->SetFont(Label::Body_13);
     intro->SetForegroundColour(wxColour("#6B6B6B"));
     outer->Add(intro, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+    if (!SecretBox::can_encrypt()) {
+        auto* plain = new wxStaticText(this, wxID_ANY,
+                                       _L("This computer has no keychain, so sign-ins are saved unencrypted, in files only your user account can open."));
+        plain->SetFont(Label::Body_13);
+        plain->SetForegroundColour(wxColour("#B26A00"));
+        outer->Add(plain, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+    }
 
     m_list = new wxBoxSizer(wxVERTICAL);
     outer->Add(m_list, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(24));

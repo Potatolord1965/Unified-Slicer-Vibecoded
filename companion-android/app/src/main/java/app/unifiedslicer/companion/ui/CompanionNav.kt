@@ -144,7 +144,7 @@ fun CompanionNav(
     )
     LaunchedEffect(openSignIn) {
         if (openSignIn != null) {
-            nav.navigate("signin?code=" + Uri.encode(openSignIn)) { launchSingleTop = true }
+            nav.navigate("signin?code=" + Uri.encode(openSignIn) + "&ask=true") { launchSingleTop = true }
             onSignInOpened()
         }
     }
@@ -220,7 +220,7 @@ fun CompanionNav(
             } else {
                 PrinterFilesScreen(
                     printer.name,
-                    printerBusy = printer.state.active,
+                    notReady = notReadyReason(printer.state),
                     load = { app.printers.files(printer) },
                     onPrint = { app.printers.printFile(printer, it) },
                     onBack = { nav.popBackStack() },
@@ -256,9 +256,16 @@ fun CompanionNav(
             )
         }
         composable("add") { AddScreen(onBack = { nav.popBackStack() }, onPick = { nav.navigate("add/$it") }, onScan = { scan() }) }
-        composable("signin?code={code}", arguments = listOf(navArgument("code") { type = NavType.StringType; defaultValue = "" })) { e ->
+        composable(
+            "signin?code={code}&ask={ask}",
+            arguments = listOf(
+                navArgument("code") { type = NavType.StringType; defaultValue = "" },
+                navArgument("ask") { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) { e ->
             ComputerSignInScreen(
                 codeText = e.arguments?.getString("code").orEmpty(),
+                askFirst = e.arguments?.getBoolean("ask") ?: true,
                 http = app.http,
                 saved = accounts,
                 onBack = { nav.popBackStack() },

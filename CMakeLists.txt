@@ -1384,6 +1384,9 @@ set(CPACK_PACKAGE_EXECUTABLES "${SLIC3R_APP_EXE};${SLIC3R_APP_NAME}")
 # keep the NSIS strings intact through CPackConfig.cmake, which CPack writes unescaped.
 set(CPACK_NSIS_CREATE_ICONS_EXTRA "CreateShortCut '$DESKTOP\\\\${SLIC3R_APP_NAME}.lnk' '$INSTDIR\\\\${SLIC3R_APP_EXE}.exe'")
 set(CPACK_NSIS_DELETE_ICONS_EXTRA "Delete '$DESKTOP\\\\${SLIC3R_APP_NAME}.lnk'")
+# The in-app updater (resources/updater/apply_update.ps1) leaves its log and the list of the files it
+# installed next to the app; without removing them the uninstaller can't remove the folder.
+set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS "Delete '$INSTDIR\\\\apply_update.log'\nDelete '$INSTDIR\\\\.update-manifest.txt'")
 set (CPACK_RESOURCE_FILE_LICENSE ${CMAKE_SOURCE_DIR}/LICENSE.txt) # must also include in install command
 
 # CI release builds Authenticode-sign the installer as makensis builds it: the payload before it is

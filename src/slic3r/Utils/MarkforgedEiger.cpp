@@ -2,6 +2,7 @@
 #include "SecretBox.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -10,10 +11,6 @@
 #include <string>
 #include <thread>
 #include <utility>
-
-#ifndef _WIN32
-#include <sys/stat.h>
-#endif
 
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/operations.hpp>
@@ -41,6 +38,10 @@ constexpr const char* API_BASE      = "https://www.eiger.io/api/v3";
 constexpr const char* EIGER_WEB     = "https://www.eiger.io/";
 constexpr int         SLICE_TIMEOUT = 20 * 60;
 constexpr int         BUILD_WAIT    = 60;
+
+// Set when the saved secret key couldn't be opened, until the settings are saved again: the
+// Accounts tab reads them every few seconds, and a locked keychain would prompt each time.
+std::atomic<bool> secret_unreadable{false};
 
 std::string trim_quotes(std::string s)
 {
@@ -103,6 +104,7 @@ json perform(Http&& http)
     unsigned    status = 0;
     http.header("Accept", "application/json")
         .header("User-Agent", user_agent())
+        .tls_verify(true)
         .on_complete([&](std::string b, unsigned s) {
             body   = std::move(b);
             status = s;
@@ -134,14 +136,22 @@ json Eiger::read_settings()
     json j = json::parse(ss.str(), nullptr, false);
     if (!j.is_object())
         return json::object();
-    // A plain "secret_key" (earlier builds, or typed in by hand) is read as it is and protected on the next save.
+    // A plain "secret_key" (typed in by hand, or saved outside Windows) is read as it is.
+    if (secret_unreadable && j.contains("secret_key_protected"))
+        j.erase("secret_key_protected");
     if (j.contains("secret_key_protected") && j["secret_key_protected"].is_string()) {
         try {
             j["secret_key"] = SecretBox::open(from_hex(j["secret_key_protected"].get<std::string>()), "markforged");
+            j.erase("secret_key_protected");
+#ifndef _WIN32
+            // Sealed by an earlier build with the keychain key, which the agent plug-in can't read.
+            write_settings(j);
+#endif
         } catch (const std::exception& e) {
             BOOST_LOG_TRIVIAL(warning) << "Markforged: saved secret key unreadable: " << e.what();
+            j.erase("secret_key_protected");
+            secret_unreadable = true;
         }
-        j.erase("secret_key_protected");
     }
     return j;
 }
@@ -149,23 +159,19 @@ json Eiger::read_settings()
 bool Eiger::write_settings(json settings)
 {
     try {
+#ifdef _WIN32
+        // DPAPI, which the agent plug-in can undo for the same Windows user.
         if (settings.contains("secret_key") && settings["secret_key"].is_string()) {
-            const std::string plain  = settings["secret_key"].get<std::string>();
-            const std::string sealed = SecretBox::seal(plain, "markforged");
-            // Without a keychain (seal() returns the text) the key stays plain in the owner-only file.
-            if (sealed != plain) {
-                settings["secret_key_protected"] = to_hex(sealed);
-                settings.erase("secret_key");
-            }
+            settings["secret_key_protected"] = to_hex(SecretBox::seal(settings["secret_key"].get<std::string>(), "markforged"));
+            settings.erase("secret_key");
         }
-        fs::create_directories(settings_file().parent_path());
-        boost::nowide::ofstream out(settings_file().string(), std::ios::trunc);
-        out << settings.dump(2);
-        out.close();
-#ifndef _WIN32
-        ::chmod(settings_file().string().c_str(), 0600);
 #endif
-        return !out.fail();
+        // Elsewhere the agent plug-in has no way to the app's keychain key, so the secret stays plain
+        // in the owner-only file.
+        fs::create_directories(settings_file().parent_path());
+        SecretBox::write_private_file(settings_file().string(), settings.dump(2));
+        secret_unreadable = false;
+        return true;
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(error) << "Markforged settings not saved: " << e.what();
         return false;

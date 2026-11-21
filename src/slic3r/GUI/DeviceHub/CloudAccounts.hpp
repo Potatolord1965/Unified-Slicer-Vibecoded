@@ -57,16 +57,24 @@ public:
     // saved account becomes active.
     void                           remove(const std::string& key, const std::function<void()>& sign_out);
     // New sign-in data for a saved account that is not active (tokens a background fetch refreshed).
-    void                           update(const std::string& key, const nlohmann::json& data);
+    // Written only while the saved data is still `before`, what the fetch started from: a sign-in
+    // saved in the meantime (the user signed in again, or switched to the account) is newer.
+    void                           update(const std::string& key, const nlohmann::json& before, const nlohmann::json& data);
 
 private:
+    // The saved accounts merged into m_accounts (an account already there keeps its entry).
+    // False when the file exists but can't be read now, e.g. while the keychain is locked.
+    bool read_locked();
     void load_locked();
-    void save_locked() const;
+    void save_locked();
 
     std::string                    m_provider;
     Hooks                          m_hooks;
     mutable std::mutex             m_mutex;
     bool                           m_loaded{false};
+    // The file couldn't be read: it is not written over until it has been read, so the accounts in it
+    // aren't lost to a keychain that was locked once.
+    bool                           m_unread{false};
     std::vector<SavedCloudAccount> m_accounts;
 };
 

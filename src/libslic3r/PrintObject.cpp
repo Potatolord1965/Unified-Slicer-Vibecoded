@@ -1776,6 +1776,7 @@ AdaptiveInfillFields PrintObject::prepare_adaptive_infill_fields() const
 
 void PrintObject::clear_layers()
 {
+    nonplanar_top_forget(*this); // UNLAYERED_MOD: the curved shells kept for these layers
     if (!m_shared_object) {
         for (Layer *l : m_layers)
             delete l;

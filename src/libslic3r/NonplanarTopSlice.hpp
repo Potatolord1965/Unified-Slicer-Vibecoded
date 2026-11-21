@@ -34,6 +34,9 @@ std::shared_ptr<const NonplanarZaaLimits> nonplanar_top_zaa_limits(const PrintOb
 // `skipped_tops`, when given, receives the number of tops whose band failed to fill and was dropped, each keeping its
 // planar top surface instead (the rest of the object is sliced as usual).
 std::string nonplanar_top_clip_slices(PrintObject &object, size_t *skipped_tops = nullptr);
+// Drops what nonplanar_top_clip_slices kept for the object. Called whenever its layers are deleted: the
+// shells belong to those layers, and a later object (or layer) at the same address must not find them.
+void nonplanar_top_forget(const PrintObject &object);
 
 // After detect_surfaces_type(): the planar tops under the shells are internal solid, not top (no top shells,
 // no ironing under a shell).

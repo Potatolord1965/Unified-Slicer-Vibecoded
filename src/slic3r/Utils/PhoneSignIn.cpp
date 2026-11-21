@@ -13,6 +13,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -49,9 +50,7 @@ using asio::ip::tcp;
 namespace {
 
 constexpr size_t KEY_LEN = 32, NONCE_LEN = 12, TAG_LEN = 16, ID_LEN = 16;
-// Requests that aren't the offer (a port scan, a stale code) before the offer is withdrawn.
-constexpr int MAX_BAD_REQUESTS = 30;
-const char*   AAD_PREFIX       = "unified-signin-v1:";
+const char*      AAD_PREFIX = "unified-signin-v1:";
 
 std::string random_bytes(size_t n)
 {
@@ -69,6 +68,24 @@ std::mutex& bambu_mutex()
     return m;
 }
 
+// The session as last remembered, read from bambu_file() once; guarded by bambu_mutex(). The
+// Accounts tab asks every few seconds, which must not open the keychain each time.
+std::optional<BambuSession>& bambu_cache()
+{
+    static std::optional<BambuSession> s;
+    return s;
+}
+
+// A phone on the same network: a private (RFC 1918), shared (RFC 6598) or link-local IPv4 address.
+bool is_local_network(const asio::ip::address& a)
+{
+    if (!a.is_v4())
+        return false;
+    const auto b = a.to_v4().to_bytes();
+    return b[0] == 10 || (b[0] == 172 && (b[1] & 0xF0) == 16) || (b[0] == 192 && b[1] == 168) ||
+           (b[0] == 100 && (b[1] & 0xC0) == 64) || (b[0] == 169 && b[1] == 254);
+}
+
 std::string json_string(const json& j, const char* key)
 {
     const auto it = j.find(key);
@@ -81,12 +98,13 @@ std::string json_string(const json& j, const char* key)
     return {};
 }
 
-// This computer's IPv4 addresses a phone on the same network may reach, the default route's first.
+// This computer's private IPv4 addresses a phone on the same network may reach, the default
+// route's first. The phone app accepts no others.
 std::vector<std::string> local_ipv4s()
 {
     std::vector<std::string> out;
     auto add = [&out](const asio::ip::address& a) {
-        if (!a.is_v4() || a.is_loopback() || a.is_unspecified())
+        if (!is_local_network(a))
             return;
         const auto b = a.to_v4().to_bytes();
         if (b[0] == 169 && b[1] == 254) // link-local: no DHCP answer
@@ -180,13 +198,13 @@ void remember_bambu_login(const std::string& user_login_message)
         }
         if (s.access_token.empty() || s.user_id.empty())
             return;
+        s.login_message = user_login_message;
         const json out = {{"access_token", s.access_token}, {"refresh_token", s.refresh_token}, {"user_id", s.user_id}, {"name", s.name},
-                          {"login_message", user_login_message}};
-        const std::string sealed = SecretBox::seal(out.dump(), "bambu");
+                          {"login_message", s.login_message}};
 
         std::lock_guard<std::mutex> lock(bambu_mutex());
-        boost::nowide::ofstream     f(bambu_file().string(), std::ios::binary | std::ios::trunc);
-        f.write(sealed.data(), static_cast<std::streamsize>(sealed.size()));
+        bambu_cache() = s;
+        SecretBox::write_private_file(bambu_file().string(), SecretBox::seal(out.dump(), "bambu"));
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(warning) << "PhoneSignIn: could not keep the Bambu session: " << e.what();
     }
@@ -195,33 +213,35 @@ void remember_bambu_login(const std::string& user_login_message)
 void forget_bambu_login()
 {
     std::lock_guard<std::mutex> lock(bambu_mutex());
-    boost::system::error_code   ec;
+    bambu_cache() = BambuSession();
+    boost::system::error_code ec;
     boost::filesystem::remove(bambu_file(), ec);
 }
 
 BambuSession bambu_session()
 {
+    std::lock_guard<std::mutex> lock(bambu_mutex());
+    if (bambu_cache())
+        return *bambu_cache();
     BambuSession s;
     try {
-        std::string data;
-        {
-            std::lock_guard<std::mutex> lock(bambu_mutex());
-            boost::nowide::ifstream     f(bambu_file().string(), std::ios::binary);
-            if (!f)
-                return s;
-            data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        boost::nowide::ifstream f(bambu_file().string(), std::ios::binary);
+        if (f) {
+            const std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            const json        j = json::parse(SecretBox::open(data, "bambu"), nullptr, false);
+            if (j.is_object()) {
+                s.access_token  = json_string(j, "access_token");
+                s.refresh_token = json_string(j, "refresh_token");
+                s.user_id       = json_string(j, "user_id");
+                s.name          = json_string(j, "name");
+                s.login_message = json_string(j, "login_message");
+            }
         }
-        const json j = json::parse(SecretBox::open(data, "bambu"), nullptr, false);
-        if (!j.is_object())
-            return s;
-        s.access_token  = json_string(j, "access_token");
-        s.refresh_token = json_string(j, "refresh_token");
-        s.user_id       = json_string(j, "user_id");
-        s.name          = json_string(j, "name");
-        s.login_message = json_string(j, "login_message");
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(warning) << "PhoneSignIn: could not read the Bambu session: " << e.what();
     }
+    // Kept even when unreadable: the next sign-in replaces it.
+    bambu_cache() = s;
     return s;
 }
 
@@ -237,7 +257,9 @@ struct Server::Impl
     std::string        id;
     std::string        body; // sealed payload; wiped once delivered or withdrawn
     std::string        qr;
-    int                bad_requests{0};
+    std::vector<std::string> hosts; // the addresses in the QR code
+    mutable std::mutex       peer_mutex;
+    std::string              delivered_to; // guarded by peer_mutex
 
     void finish(State end)
     {
@@ -256,12 +278,20 @@ struct Server::Impl
         acceptor.async_accept([this](const boost::system::error_code& ec, tcp::socket socket) {
             if (ec || state != State::Waiting)
                 return;
-            serve(std::make_shared<tcp::socket>(std::move(socket)));
+            // Only phones on the network the QR code names: the port listens on every interface.
+            boost::system::error_code local_ec, remote_ec;
+            const tcp::endpoint       local  = socket.local_endpoint(local_ec);
+            const tcp::endpoint       remote = socket.remote_endpoint(remote_ec);
+            if (!local_ec && !remote_ec && is_local_network(remote.address()) &&
+                std::find(hosts.begin(), hosts.end(), local.address().to_string()) != hosts.end())
+                serve(std::make_shared<tcp::socket>(std::move(socket)), remote.address().to_string());
             accept();
         });
     }
 
-    void serve(std::shared_ptr<tcp::socket> socket)
+    // Answers one request; a request for anything but the offer gets a 404 (a guess of the 128-bit
+    // id never succeeds, so no number of them withdraws the offer).
+    void serve(std::shared_ptr<tcp::socket> socket, const std::string& peer)
     {
         auto buf      = std::make_shared<asio::streambuf>(8192);
         auto deadline = std::make_shared<asio::steady_timer>(io, std::chrono::seconds(10));
@@ -271,7 +301,7 @@ struct Server::Impl
                 socket->close(ignored);
             }
         });
-        asio::async_read_until(*socket, *buf, "\r\n\r\n", [this, socket, buf, deadline](const boost::system::error_code& ec, size_t) {
+        asio::async_read_until(*socket, *buf, "\r\n\r\n", [this, socket, buf, deadline, peer](const boost::system::error_code& ec, size_t) {
             if (ec) {
                 deadline->cancel();
                 return;
@@ -281,8 +311,6 @@ struct Server::Impl
             std::getline(in, request_line);
             const std::string wanted = "GET /signin/" + id + " HTTP/";
             const bool        match  = state == State::Waiting && request_line.compare(0, wanted.size(), wanted) == 0;
-            if (!match && ++bad_requests >= MAX_BAD_REQUESTS)
-                finish(State::Failed);
 
             std::ostringstream head;
             if (match)
@@ -292,15 +320,20 @@ struct Server::Impl
                 head << "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             auto response = std::make_shared<std::string>(head.str() + (match ? body : std::string()));
             asio::async_write(*socket, asio::buffer(*response),
-                              [this, socket, response, deadline, match](const boost::system::error_code& ec, size_t) {
+                              [this, socket, response, deadline, match, peer](const boost::system::error_code& ec, size_t) {
                                   deadline->cancel();
                                   response->assign(response->size(), '\0');
                                   boost::system::error_code ignored;
                                   socket->shutdown(tcp::socket::shutdown_both, ignored);
                                   socket->close(ignored);
                                   // A dropped connection leaves the offer up for the phone's retry.
-                                  if (match && !ec)
+                                  if (match && !ec) {
+                                      {
+                                          std::lock_guard<std::mutex> lock(peer_mutex);
+                                          delivered_to = peer;
+                                      }
                                       finish(State::Delivered);
+                                  }
                               });
         });
     }
@@ -321,6 +354,7 @@ bool Server::start(const std::string& payload, std::chrono::seconds lifetime, st
             return false;
         }
         const std::string key = random_bytes(KEY_LEN);
+        m->hosts              = hosts;
         m->id                 = base64url(random_bytes(ID_LEN));
         m->body               = seal(key, payload, AAD_PREFIX + m->id);
 
@@ -374,5 +408,13 @@ void Server::stop()
 Server::State Server::state() const { return m ? m->state.load() : State::Idle; }
 
 std::string Server::qr_text() const { return m ? m->qr : std::string(); }
+
+std::string Server::delivered_to() const
+{
+    if (!m)
+        return {};
+    std::lock_guard<std::mutex> lock(m->peer_mutex);
+    return m->delivered_to;
+}
 
 }} // namespace Slic3r::PhoneSignIn

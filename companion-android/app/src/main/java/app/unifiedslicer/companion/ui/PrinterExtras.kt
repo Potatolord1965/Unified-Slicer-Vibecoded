@@ -120,7 +120,7 @@ fun parseHex(hex: String): Color? {
 /** Home and step moves, for an idle printer. Collapsed until opened, so a stray tap moves nothing. */
 @Composable
 fun MovePanel(p: PrinterStatus, controls: Set<Control>, accent: Color, commands: CommandRunner) {
-    if (Control.MOVE !in controls || p.state == PrinterState.OFFLINE || p.state.active) return
+    if (Control.MOVE !in controls || !p.state.ready) return
     var open by remember(p.key) { mutableStateOf(false) }
     var step by remember { mutableDoubleStateOf(10.0) }
     Panel(Modifier.fillMaxWidth()) {
@@ -236,11 +236,20 @@ private fun <T> ListScreen(
     }
 }
 
+/** Why a printer in [state] takes no new print, or null when it takes one. */
+fun notReadyReason(state: PrinterState): String? = when {
+    state.ready -> null
+    state.active -> "The printer is busy with another print."
+    state == PrinterState.OFFLINE -> "The printer is offline."
+    else -> "The printer's state isn't known yet, so it might be printing."
+}
+
 /** Files stored on the printer; tapping one asks before printing it. */
 @Composable
 fun PrinterFilesScreen(
     printerName: String,
-    printerBusy: Boolean,
+    /** Why printing is blocked right now, or null; see [notReadyReason]. */
+    notReady: String?,
     load: suspend () -> List<PrinterFile>,
     onPrint: suspend (PrinterFile) -> String?,
     onBack: () -> Unit,
@@ -259,9 +268,9 @@ fun PrinterFilesScreen(
         AlertDialog(
             onDismissRequest = { chosen = null },
             title = { Text("Print this file?") },
-            text = { Text(if (printerBusy) "The printer is busy with another print." else f.name) },
+            text = { Text(notReady ?: f.name) },
             confirmButton = {
-                TextButton(enabled = !printerBusy, onClick = {
+                TextButton(enabled = notReady == null, onClick = {
                     chosen = null
                     scope.launch { result = onPrint(f) ?: "Print started" }
                 }) { Text("Print") }

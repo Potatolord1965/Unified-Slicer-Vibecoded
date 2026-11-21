@@ -62,7 +62,7 @@ struct Machine
 
     double   table_radius = 110.;   // the turntable, swept with the part during a swing, mm
     double   clearance = 5.;        // kept between the nozzle tip and the highest swept point, mm
-    double   max_z = 0.;            // highest machine Z a transition may lift to; 0 = no limit
+    double   max_z = 0.;            // highest machine Z a transition or a tilted move may reach; 0 = no limit
     double   travel_feed = 6000.;   // mm/min
     double   z_feed = 600.;         // mm/min
     double   rotary_feed = 1800.;   // deg/min
@@ -114,7 +114,8 @@ struct Report
 };
 
 // Throws std::runtime_error naming the input line when the file cannot be converted safely (an axis
-// outside the A limits, a lift above max_z, the hotend envelope hitting the part on a lift or descent).
+// outside the A limits, a lift or a tilted move above max_z, the hotend envelope hitting the part on a
+// lift or descent).
 Report process(std::istream &in, std::ostream &out, const Machine &m);
 
 } // namespace TrunnionAC

@@ -137,13 +137,17 @@ class MiniMqtt:
 
     def _read_packet(self, s: socket.socket):
         hdr = self._recv_exact(s, 1)[0]
+        # The remaining length takes at most 4 bytes (MQTT 3.1.1, 2.2.3); a device that keeps setting
+        # the continuation bit is not speaking MQTT.
         mult, length = 1, 0
-        while True:
+        for _ in range(4):
             b = self._recv_exact(s, 1)[0]
             length += (b & 0x7F) * mult
             if not b & 0x80:
                 break
             mult *= 128
+        else:
+            raise ConnectionError("malformed MQTT packet length")
         return hdr, self._recv_exact(s, length) if length else b""
 
     def _send(self, packet: bytes) -> bool:

@@ -56,7 +56,8 @@ class BambuCloudSource(account: BambuAccount, private val ctx: SourceContext) : 
                 report != null -> BambuReport.toStatus(account.id, d.id, d.name, d.model, VIA, report.first, report.second)
                 else -> PrinterStatus(
                     account.id, d.id, d.name, d.model, Brand.BAMBU, VIA,
-                    if (d.printStatus == "ACTIVE") PrinterState.PRINTING else PrinterState.IDLE,
+                    // Until the printer's first report: the device list only tells a running task apart.
+                    if (d.printStatus == "ACTIVE") PrinterState.PRINTING else PrinterState.UNKNOWN,
                 )
             }
         }

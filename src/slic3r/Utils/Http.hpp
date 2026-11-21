@@ -107,6 +107,10 @@ public:
 	// Sets a maximum size of the data that can be received.
 	// A value of zero sets the default limit, which is is 5MB.
 	Http& size_limit(size_t sizeLimit);
+	// Writes the response body to `path` (created or truncated) instead of keeping it in memory, for
+	// downloads too large to hold. size_limit() still applies. The file is closed before on_complete
+	// or on_error runs, and both then get an empty body.
+	Http& body_to_file(const boost::filesystem::path &path);
 	// range  of donloaded bytes. example: curl_easy_setopt(curl, CURLOPT_RANGE, "0-199");
 	Http& set_range(const std::string& range);
 	// Sets a HTTP header field.

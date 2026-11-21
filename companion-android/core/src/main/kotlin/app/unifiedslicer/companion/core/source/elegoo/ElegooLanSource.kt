@@ -132,7 +132,7 @@ class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceC
         val waiter = CompletableDeferred<JsonElement>()
         pending[id] = waiter
         try {
-            l.publish("elegoo/$serial/$clientId/api_request", buildJsonObject { put("id", id); put("method", method); put("params", params) }.toString())
+            l.send("elegoo/$serial/$clientId/api_request", buildJsonObject { put("id", id); put("method", method); put("params", params) }.toString())
             val reply = withTimeoutOrNull(10_000) { waiter.await() } ?: throw IOException("The printer did not answer")
             val err = (reply.el("result") as? JsonObject).int("error_code") ?: 0
             if (err != 0) throw ElegooPrinterError(err, method)
@@ -146,12 +146,19 @@ class ElegooLanSource(override val account: LanPrinter, private val ctx: SourceC
     private fun offline() = PrinterStatus(account.id, deviceId(), account.label, "Centauri Carbon 2", Brand.ELEGOO, VIA, PrinterState.OFFLINE)
 
     private suspend fun fetchSerial(): String {
-        val url = "http://$host/system/info?X-Token=" + java.net.URLEncoder.encode(code, "UTF-8")
-        val reply = try {
-            ctx.http.fetchJson(Request.Builder().url(url).header("X-Token", code).build())
-        } catch (e: HttpException) {
-            throw IOException(e.message, e)
+        // The access code goes in a header. Elegoo's own slicer also puts it in the address, so
+        // firmware that only reads it there gets a second try with it, instead of it always
+        // travelling in a URL.
+        suspend fun systemInfo(inAddress: Boolean): JsonElement? {
+            val url = "http://$host/system/info" + if (inAddress) "?X-Token=" + java.net.URLEncoder.encode(code, "UTF-8") else ""
+            return try {
+                ctx.http.fetchJson(Request.Builder().url(url).header("X-Token", code).build(), authErrors = inAddress)
+            } catch (e: HttpException) {
+                if (!inAddress && (e.code == 401 || e.code == 403)) return null
+                throw IOException(e.message, e)
+            }
         }
+        val reply = systemInfo(false)?.takeIf { (it.int("error_code") ?: 0) == 0 } ?: systemInfo(true)
         val err = reply.int("error_code") ?: 0
         if (err != 0) throw AuthException("The printer rejected the access code (error $err)")
         return reply.obj("system_info").str("sn") ?: throw IOException("The printer did not report a serial number")

@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
+import okio.Buffer
 import java.io.IOException
 import java.net.URI
 import java.util.Base64
@@ -40,7 +42,8 @@ class SignInCode(val hosts: List<String>, val port: Int, val id: String, val key
                 if (eq <= 0) null else it.substring(0, eq) to it.substring(eq + 1)
             }.toMap()
             if (q["v"] != "1") return null
-            val hosts = q["h"].orEmpty().split(',').filter { it.matches(IPV4) }
+            // A link anyone can open: only addresses on the phone's own network are ever fetched from.
+            val hosts = q["h"].orEmpty().split(',').filter { it.matches(IPV4) && isLocalNetwork(it) }
             val port = q["p"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
             val id = q["i"]?.takeIf { it.matches(B64URL) } ?: return null
             val key = Base64.getUrlDecoder().decode(q["k"] ?: return null)
@@ -51,6 +54,17 @@ class SignInCode(val hosts: List<String>, val port: Int, val id: String, val key
         private val IPV4 = Regex("""\d{1,3}(\.\d{1,3}){3}""")
         private val B64URL = Regex("""[A-Za-z0-9_-]{16,64}""")
     }
+}
+
+/**
+ * Addresses a computer on the same network can have: the private ranges, carrier-grade NAT
+ * (100.64/10) and link-local, as the computer's own server accepts.
+ */
+fun isLocalNetwork(ip: String): Boolean {
+    val b = ip.split('.').map { it.toIntOrNull() ?: return false }
+    if (b.size != 4 || b.any { it !in 0..255 }) return false
+    return b[0] == 10 || (b[0] == 172 && b[1] in 16..31) || (b[0] == 192 && b[1] == 168) ||
+        (b[0] == 100 && b[1] in 64..127) || (b[0] == 169 && b[1] == 254)
 }
 
 /** What the computer handed over. [accounts] carry new ids; see [mergeAccounts]. */
@@ -74,7 +88,7 @@ class SignInHandoff(http: OkHttpClient) {
                     when {
                         r.code == 404 -> throw HandoffException("This code was already used or has expired. Make a new one on the computer.")
                         !r.isSuccessful -> throw IOException("HTTP ${r.code}")
-                        else -> return@withContext open(code, r.body!!.bytes())
+                        else -> return@withContext open(code, readCapped(r.body!!))
                     }
                 }
             } catch (e: HandoffException) {
@@ -90,6 +104,16 @@ class SignInHandoff(http: OkHttpClient) {
     }
 
     companion object {
+        /** A sealed offer is a few kilobytes; anything far bigger isn't one. */
+        private const val MAX_OFFER = 1L shl 20
+
+        private fun readCapped(body: ResponseBody): ByteArray {
+            val buf = Buffer()
+            body.source().use { src -> while (buf.size <= MAX_OFFER && src.read(buf, 8192) != -1L) Unit }
+            if (buf.size > MAX_OFFER) throw HandoffException("The answer is too large to be a sign-in. Make a new code on the computer.")
+            return buf.readByteArray()
+        }
+
         /** Decrypts a served offer and reads its accounts. */
         fun open(code: SignInCode, sealed: ByteArray): HandedOver {
             if (sealed.size < NONCE + TAG) throw HandoffException("The computer sent an incomplete answer.")

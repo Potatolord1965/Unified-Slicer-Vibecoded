@@ -370,17 +370,18 @@ bool CloudProviderPage::Show(bool show)
 void CloudProviderPage::refresh()
 {
     update_header();
-    wxWeakRef<CloudProviderPage> self(this);
+    const std::weak_ptr<bool> alive = m_alive;
+    CloudProviderPage* const  page  = this;
     for (const CloudPrinterProviderPtr& p : providers()) {
         if (!p->is_available()) {
             m_printers.erase(p->id());
             continue;
         }
         const std::string provider_id = p->id();
-        p->refresh_printers([self, provider_id](std::vector<CloudPrinter> printers, wxString error) {
-            wxGetApp().CallAfter([self, provider_id, printers = std::move(printers), error]() mutable {
-                if (self)
-                    self->on_printers(provider_id, std::move(printers), error);
+        p->refresh_printers([alive, page, provider_id](std::vector<CloudPrinter> printers, wxString error) {
+            wxGetApp().CallAfter([alive, page, provider_id, printers = std::move(printers), error]() mutable {
+                if (!alive.expired()) // the page is destroyed on this thread, so it can't go in between
+                    page->on_printers(provider_id, std::move(printers), error);
             });
         });
     }

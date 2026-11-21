@@ -16631,10 +16631,12 @@ void Plater::import_model_id(wxString download_info)
         BOOST_LOG_TRIVIAL(trace) << "import_model_id: target_path = " << target_path.string();
         /* load project */
         // Orca: If download is a zip file, treat it as if file has been drag and dropped on the plater
-        if (target_path.extension() == ".zip")
-            { wxArrayString arr; arr.Add(from_path(target_path)); this->load_files(arr); }
-        else
-            this->load_project(from_path(target_path));
+        load_downloaded([this, &target_path] {
+            if (target_path.extension() == ".zip")
+                { wxArrayString arr; arr.Add(from_path(target_path)); this->load_files(arr); }
+            else
+                this->load_project(from_path(target_path));
+        });
         /*BBS set project info after load project, project info is reset in load project */
         //p->project.project_model_id = model_id;
         //p->project.project_design_id = design_id;
@@ -16674,6 +16676,43 @@ void Plater::request_download_project(std::string project_id)
     wxCommandEvent* event = new wxCommandEvent(EVT_DOWNLOAD_PROJECT);
     event->SetString(project_id);
     wxQueueEvent(this, event);
+}
+
+// The process's scripts are compared before and after the load, so it doesn't matter how the file
+// set them (a full project config or a published overlay).
+void Plater::load_downloaded(const std::function<void()>& load)
+{
+    const auto scripts = [] {
+        std::vector<std::string> out;
+        const auto* opt = wxGetApp().preset_bundle->prints.get_edited_preset().config.option<ConfigOptionStrings>("post_process");
+        if (opt != nullptr)
+            for (const std::string& s : opt->values)
+                if (!boost::algorithm::trim_copy(s).empty())
+                    out.push_back(boost::algorithm::trim_copy(s));
+        return out;
+    };
+    const std::vector<std::string> before = scripts();
+    load();
+    const std::vector<std::string> after = scripts();
+    if (after.empty() || after == before)
+        return;
+    wxString list;
+    for (const std::string& s : after)
+        list += (list.empty() ? "" : "\n") + from_u8(s);
+    // TRN %1% is the list of scripts, one per line.
+    MessageDialog dlg(this,
+                      format_wxstr(_L("This downloaded project sets post-processing scripts. They run as programs on this computer "
+                                      "each time G-code is exported:\n%1%\n\nKeep them only if you trust where the project came from. "
+                                      "Keep these scripts?"),
+                                   list),
+                      _L("Post-processing Scripts"), wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
+    dlg.SetButtonLabel(wxID_NO, _L("No"), /*set_focus=*/true); // MsgDialog ignores wxNO_DEFAULT
+    if (dlg.ShowModal() == wxID_YES)
+        return;
+    DynamicPrintConfig none;
+    none.set_key_value("post_process", new ConfigOptionStrings());
+    if (Tab* tab = wxGetApp().get_tab(Preset::TYPE_PRINT))
+        tab->load_config(none);
 }
 
 // BBS: save logic
