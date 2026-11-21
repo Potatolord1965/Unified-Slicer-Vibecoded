@@ -57,28 +57,32 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Pages hand over in-memory downloads as blob: URLs, which only the page itself can read. This
- * reads the blob in the page and passes it to the app in pieces.
+ * reads the blob in the page and passes it to the app in pieces. [token] is new for each
+ * download and only ever in this script, which the app runs in the main frame, so no other frame
+ * (an ad, say) can start a download or write into one.
  */
-private fun blobScript(url: String, name: String) = """
+private fun blobScript(url: String, name: String, token: String) = """
 (async function () {
+  const t = ${quote(token)};
   try {
     const blob = await (await fetch(${quote(url)})).blob();
     const step = 512 * 1024;
-    UnifiedDownloads.begin(${quote(name)}, blob.size);
+    UnifiedDownloads.begin(t, ${quote(name)}, blob.size);
     for (let at = 0; at < blob.size; at += step) {
       const text = await new Promise((ok, bad) => {
         const r = new FileReader();
         r.onload = () => ok(r.result); r.onerror = bad;
         r.readAsDataURL(blob.slice(at, at + step));
       });
-      UnifiedDownloads.chunk(text.substring(text.indexOf(',') + 1));
+      UnifiedDownloads.chunk(t, text.substring(text.indexOf(',') + 1));
     }
-    UnifiedDownloads.end();
-  } catch (e) { UnifiedDownloads.fail(String(e)); }
+    UnifiedDownloads.end(t);
+  } catch (e) { UnifiedDownloads.fail(t, String(e)); }
 })();
 """
 
@@ -95,7 +99,8 @@ fun BrowserScreen(site: ModelSite, http: OkHttpClient, onBack: () -> Unit, onFil
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loading by remember { mutableIntStateOf(0) }
     var download by remember { mutableStateOf<String?>(null) }
-    val blobArmed = remember { AtomicBoolean(false) }
+    // The token of the blob download the app just started, until its script claims it.
+    val blobToken = remember { AtomicReference<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val accent = site.brand.color()
@@ -145,46 +150,53 @@ fun BrowserScreen(site: ModelSite, http: OkHttpClient, onBack: () -> Unit, onFil
                         settings.userAgentString = settings.userAgentString.replace("; wv", "")
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
-                        // blob: downloads arrive through this bridge, written straight to the cache. Any page or
-                        // frame can call it, so it only accepts a download the app itself started (blobArmed, set
-                        // by the download listener below) and stops at MAX_BRIDGE_BYTES.
+                        // blob: downloads arrive through this bridge, written straight to the cache. Every
+                        // frame sees it, so each call must carry the token of the download the app itself
+                        // started (see blobScript), and it stops at MAX_BRIDGE_BYTES.
                         addJavascriptInterface(object {
                             private var out: FileOutputStream? = null
                             private var file: File? = null
                             private var written = 0L
+                            private var current: String? = null
 
                             @JavascriptInterface
-                            fun begin(name: String, size: Double) {
-                                if (!blobArmed.getAndSet(false) || size > MAX_BRIDGE_BYTES) return
+                            fun begin(token: String, name: String, size: Double) {
+                                if (token != blobToken.getAndSet(null) || size > MAX_BRIDGE_BYTES) return
                                 out?.close()
+                                file?.delete()
                                 written = 0L
+                                current = token
                                 file = PrintFiles.newFile(ctx, PrintFiles.safeName(name)).also { out = FileOutputStream(it) }
                                 main.post { download = name }
                             }
 
                             @JavascriptInterface
-                            fun chunk(base64: String) {
+                            fun chunk(token: String, base64: String) {
+                                if (token != current) return
                                 val stream = out ?: return
                                 val bytes = Base64.decode(base64, Base64.DEFAULT)
                                 written += bytes.size
                                 if (written > MAX_BRIDGE_BYTES) {
-                                    fail("file too large")
+                                    fail(token, "file too large")
                                     return
                                 }
                                 stream.write(bytes)
                             }
 
                             @JavascriptInterface
-                            fun end() {
+                            fun end(token: String) {
+                                if (token != current) return
                                 val stream = out ?: return
                                 stream.close(); out = null
+                                current = null
                                 file?.let { f -> main.post { finished(f) } }
                                 file = null
                             }
 
                             @JavascriptInterface
-                            fun fail(message: String) {
-                                if (out == null && file == null) return
+                            fun fail(token: String, message: String) {
+                                if (token != current) return
+                                current = null
                                 out?.close(); out = null
                                 file?.delete(); file = null
                                 main.post { failed(message) }
@@ -194,8 +206,9 @@ fun BrowserScreen(site: ModelSite, http: OkHttpClient, onBack: () -> Unit, onFil
                         setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                             val name = PrintFiles.safeName(URLUtil.guessFileName(url, contentDisposition, mimeType))
                             if (url.startsWith("blob:")) {
-                                blobArmed.set(true)
-                                evaluateJavascript(blobScript(url, name), null)
+                                val token = UUID.randomUUID().toString()
+                                blobToken.set(token)
+                                evaluateJavascript(blobScript(url, name, token), null)
                                 return@setDownloadListener
                             }
                             if (!url.startsWith("https://")) {

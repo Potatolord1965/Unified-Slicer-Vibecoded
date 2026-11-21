@@ -265,12 +265,12 @@ jobs:
       # don't let a publish failure fail the run. The test jobs gate correctness.
       - name: Publish Test Results
         continue-on-error: true
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: EnricoMi/publish-unit-test-result-action@da5b7be67623cd59bbbd1a0ce4f022050a55605f # v2
         with:
           files: "test-results/**/*.xml"
       - name: Delete Test Results
         if: success()
-        uses: geekyeggo/delete-artifact@v6
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6
         with:
           name: test-results-*
           failOnError: false
@@ -425,7 +425,7 @@ jobs:
     - name: Pack deps/ for the Flatpak manifest
       run: ./scripts/flatpak/make_deps_tar.sh
       shell: bash
-    - uses: flatpak/flatpak-github-actions/flatpak-builder@master
+    - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # master
       with:
         bundle: OrcaSlicer-Linux-flatpak_${{ env.ver }}_${{ matrix.variant.arch }}.flatpak
         manifest-path: scripts/flatpak/com.orcaslicer.OrcaSlicer.yml

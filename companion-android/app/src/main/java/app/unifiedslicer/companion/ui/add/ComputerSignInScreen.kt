@@ -37,10 +37,14 @@ import okhttp3.OkHttpClient
 /**
  * Signs in with the accounts Unified Slicer on a computer hands over (Accounts > Sign in on phone).
  * [codeText] is the scanned QR code. Nothing is saved until the person confirms the list.
+ *
+ * [askFirst]: the code came in as a link, which any web page or app can open, so nothing is
+ * fetched until the person taps Continue. A code scanned in this app is fetched straight away.
  */
 @Composable
 fun ComputerSignInScreen(
     codeText: String,
+    askFirst: Boolean,
     http: OkHttpClient,
     saved: List<Account>,
     onBack: () -> Unit,
@@ -49,12 +53,14 @@ fun ComputerSignInScreen(
 ) {
     var result by remember { mutableStateOf<HandedOver?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(codeText) {
-        val code = SignInCode.parse(codeText)
+    var confirmed by remember(codeText) { mutableStateOf(!askFirst) }
+    val code = remember(codeText) { SignInCode.parse(codeText) }
+    LaunchedEffect(codeText, confirmed) {
         if (code == null) {
             error = "That isn't a Unified Slicer sign-in code. On the computer, open Accounts and click Sign in on phone."
             return@LaunchedEffect
         }
+        if (!confirmed) return@LaunchedEffect
         try {
             result = SignInHandoff(http).fetch(code)
         } catch (e: Exception) {
@@ -68,6 +74,14 @@ fun ComputerSignInScreen(
             error != null -> {
                 ErrorText(error)
                 OutlinedButton(onClick = onScanAgain, modifier = Modifier.fillMaxWidth()) { Text("Scan again") }
+            }
+            code != null && !confirmed -> {
+                Hint(
+                    "Get your sign-ins from Unified Slicer on the computer at ${code.hosts.joinToString(" or ")}? " +
+                        "Only continue if you just made a sign-in code on your own computer.",
+                )
+                PrimaryButton("Continue", busy = false) { confirmed = true }
+                OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
             }
             r == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)

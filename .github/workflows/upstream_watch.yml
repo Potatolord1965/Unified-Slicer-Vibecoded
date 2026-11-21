@@ -79,7 +79,7 @@ jobs:
             git fetch --no-tags "https://github.com/$repo" "refs/tags/$latest:refs/tags/upstream-$latest"
             git checkout -B "$branch" "origin/$base"
             if git merge --no-edit -m "Merge $repo $latest" "upstream-$latest"; then
-              jq ".$key.version = \"$latest\"" .github/upstream.json > upstream.tmp && mv upstream.tmp .github/upstream.json
+              jq --arg v "$latest" ".$key.version = \$v" .github/upstream.json > upstream.tmp && mv upstream.tmp .github/upstream.json
               git commit -am "Track $repo $latest"
               git push origin "$branch"
               gh pr create --base "$base" --head "$branch" --title "Merge $repo $latest" \

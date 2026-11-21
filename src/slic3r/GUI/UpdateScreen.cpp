@@ -127,7 +127,7 @@ void UpdateScreen::refresh()
         status += "\n" + wxString::Format(_L("Downloading the update: %d%%"), int(u.progress() * 100.));
         break;
     case State::Ready:
-        status += "\n" + (UnifiedUpdater::auto_install_enabled() ?
+        status += "\n" + (UnifiedUpdater::auto_install_enabled() && !u.install_declined() ?
                               _L("The update is downloaded. It installs when you close Unified Slicer, or restart now.") :
                               _L("The update is downloaded. Restart to install it."));
         break;

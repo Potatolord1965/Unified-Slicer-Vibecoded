@@ -77,7 +77,7 @@ jobs:
           if-no-files-found: warn
       - name: Delete Test Asset
         if: success()
-        uses: geekyeggo/delete-artifact@v6
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6
         with:
           name: ${{ inputs.artifact }}
           failOnError: false

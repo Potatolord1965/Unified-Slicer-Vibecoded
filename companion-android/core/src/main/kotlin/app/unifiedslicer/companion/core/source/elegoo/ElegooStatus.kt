@@ -32,15 +32,15 @@ object ElegooStatus {
         2 -> when (sub) {
             2501, 2502, 2505 -> PrinterState.PAUSED
             2077 -> PrinterState.FINISHED
-            2503, 2504 -> PrinterState.FAILED
+            // 2503 "Stopping" is still moving, so it counts as printing until 2504 "Stopped".
+            2504 -> PrinterState.FAILED
             in PREPARING -> PrinterState.PREPARING
             else -> PrinterState.PRINTING
         }
         1 -> if (sub == 2077) PrinterState.FINISHED else PrinterState.IDLE
         0 -> PrinterState.PREPARING
         14 -> PrinterState.FAILED
-        null -> PrinterState.UNKNOWN
-        else -> PrinterState.IDLE
+        else -> PrinterState.UNKNOWN
     }
 
     /**

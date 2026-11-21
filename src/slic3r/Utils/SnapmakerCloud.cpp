@@ -779,7 +779,8 @@ namespace {
 int perform(Http& http, std::string& reply, std::string& error)
 {
     int code = CODE_NETWORK;
-    http.timeout_connect(10)
+    http.tls_verify(true)
+        .timeout_connect(10)
         .timeout_max(30)
         .on_complete([&](std::string body, unsigned) {
             reply = std::move(body);
@@ -885,7 +886,8 @@ int Client::put_file(const std::string& url, const std::string& method, const st
     int         code       = CODE_NETWORK;
     bool        was_cancel = false;
     std::string received_headers;
-    http.timeout_connect(10)
+    http.tls_verify(true)
+        .timeout_connect(10)
         .on_header_callback([&](std::string h) { received_headers = std::move(h); })
         .on_progress([&](Http::Progress p, bool& cancel) {
             if (cancelled && cancelled()) {

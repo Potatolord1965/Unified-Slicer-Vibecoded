@@ -79,6 +79,8 @@ private:
     void nexprint_respond(const std::string& id, const std::string& method, int code, const nlohmann::json& data,
                           const std::string& message = "success");
     void nexprint_event(const std::string& method, const nlohmann::json& data);
+    // Runs a protocol script only while the page is still a Nexprint page.
+    void nexprint_run(const wxString& script);
     nlohmann::json nexprint_user_info() const;
 
     // Unlayered Universe: the web-app bridge subset.

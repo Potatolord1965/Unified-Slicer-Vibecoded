@@ -119,13 +119,16 @@ def load_settings() -> dict:
         settings = json.loads((DATA_DIR / "settings.json").read_text(encoding="utf-8"))
     except Exception:
         return {}
-    # The app saves the secret key encrypted on Windows (Eiger::write_settings).
+    # The app saves the secret key encrypted for the Windows user, and plain in this owner-only file
+    # elsewhere (Eiger::write_settings).
     protected = settings.pop("secret_key_protected", None)
     if protected and sys.platform == "win32":
         try:
             settings["secret_key"] = _dpapi_unprotect(bytes.fromhex(protected)).decode("utf-8")
         except Exception as e:
             log("saved secret key unreadable: %s" % e)
+    elif protected:
+        log("saved secret key is sealed by an earlier Unified Slicer: open the Accounts tab once to convert it")
     return settings
 
 

@@ -3,6 +3,7 @@
 #include "NotificationManager.hpp"
 #include "format.hpp"
 #include "MainFrame.hpp"
+#include "Plater.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem/path.hpp>
@@ -211,7 +212,8 @@ void Downloader::on_complete(wxCommandEvent& event)
     set_download_state(event.GetInt(), DownloadState::DownloadDone);
 	wxArrayString paths;
 	paths.Add(event.GetString());
-	wxGetApp().plater()->load_files(paths);
+	Plater* plater = wxGetApp().plater();
+	plater->load_downloaded([plater, &paths] { plater->load_files(paths); });
 }
 bool Downloader::user_action_callback(DownloaderUserAction action, int id)
 {

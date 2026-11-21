@@ -1,5 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cloud services use HTTPS; LAN printers (Moonraker, OctoPrint, PrusaLink, Elegoo CC2) only offer HTTP. -->
+<!--
+  LAN printers (Moonraker, OctoPrint, PrusaLink, Elegoo CC2) only offer HTTP, so plain HTTP stays
+  allowed in general. The cloud services and model sites this app signs in to never get it: a
+  redirect or a mistyped link to one of them can't send a token or a download over plain HTTP.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">bambulab.com</domain>
+        <domain includeSubdomains="true">bambulab.cn</domain>
+        <domain includeSubdomains="true">makerworld.com</domain>
+        <domain includeSubdomains="true">makerworld.com.cn</domain>
+        <domain includeSubdomains="true">elegoo.com</domain>
+        <domain includeSubdomains="true">elegoo.com.cn</domain>
+        <domain includeSubdomains="true">nexprint.com</domain>
+        <domain includeSubdomains="true">nexprint.cn</domain>
+        <domain includeSubdomains="true">creality.com</domain>
+        <domain includeSubdomains="true">crealitycloud.com</domain>
+        <domain includeSubdomains="true">crealitycloud.cn</domain>
+        <domain includeSubdomains="true">eiger.io</domain>
+    </domain-config>
 </network-security-config>

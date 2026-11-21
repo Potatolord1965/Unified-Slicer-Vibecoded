@@ -143,7 +143,10 @@ public:
     // Whether `url` is an https page of Elegoo's own sites (nexprint, elegoo): the only pages the
     // sign-in and online-models protocols are served to.
     static bool        is_elegoo_page(const std::string& url);
-    // Fills the account from the tokens a login page reported ("report.userInfo" params).
+    // Whether `url` is an https page of the sign-in site itself, the only one an account is taken from.
+    static bool        is_login_page(const std::string& url);
+    // Fills the account from the tokens a login page reported ("report.userInfo" params), and
+    // checks them with the cloud (blocking).
     bool accept_login_report(const nlohmann::json& params, std::string& error);
 
 #ifdef _WIN32
@@ -160,8 +163,10 @@ public:
     // Over the account's messaging session, which stays open between calls for the same printer.
     ElegooPrinterStatus             live_status(const std::string& serial);
     void                            command(const std::string& serial, ElegooCommand cmd);
-    // Ends the messaging session kept for live_status() (it logs out; blocking).
-    void                            close_live_session();
+    // Ends instance()'s messaging session kept for live_status(), on a worker thread because logging
+    // out blocks. Only a session opened before the call is closed: one opened since, for another
+    // account or another printer page, stays open.
+    static void                     close_live_session_later();
 
     // For ElegooSlicer's cloud printer page, which talks to the printer itself through the app.
     // Every message the printer sends on the kept session goes to the listener (worker thread).
@@ -218,6 +223,8 @@ private:
     // the live calls wait for it only briefly and then report that a send is in progress.
     std::timed_mutex             m_rtm_mutex;
     std::unique_ptr<LiveSession> m_live; // guarded by m_rtm_mutex
+    // Bumped by close_live_session_later(): a kept session from an older epoch is not reused.
+    std::atomic<uint64_t>        m_live_epoch{0};
     std::mutex                   m_raw_mutex;
     RawMessageFn                 m_raw_listener; // guarded by m_raw_mutex
 };

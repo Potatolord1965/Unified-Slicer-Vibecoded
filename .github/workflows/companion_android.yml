@@ -29,12 +29,15 @@ jobs:
           distribution: temurin
           java-version: "17"
       # The runner image ships the Android SDK (ANDROID_HOME); AGP fetches missing platforms itself.
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - name: Unit tests
         run: ./gradlew --no-daemon :core:test
       # The signing key lives in repository secrets (COMPANION_KEYSTORE_BASE64, COMPANION_KEYSTORE_PASSWORD).
+      # Gradle runs the checked-out build scripts, so the key is only restored for main: a pull request
+      # (even from a branch of this repository) could otherwise change those scripts to read it.
       # Pull requests and builds without the secrets are signed with a throwaway debug key.
       - name: Restore signing key
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           KEYSTORE_B64: ${{ secrets.COMPANION_KEYSTORE_BASE64 }}
         run: |
@@ -47,7 +50,7 @@ jobs:
           fi
       - name: Build APK
         env:
-          COMPANION_KEYSTORE_PASSWORD: ${{ secrets.COMPANION_KEYSTORE_PASSWORD }}
+          COMPANION_KEYSTORE_PASSWORD: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') && secrets.COMPANION_KEYSTORE_PASSWORD || '' }}
         run: ./gradlew --no-daemon :app:assembleRelease
       - name: Report signing
         id: signed

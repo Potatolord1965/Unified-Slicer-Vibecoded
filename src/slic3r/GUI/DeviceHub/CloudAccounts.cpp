@@ -31,44 +31,63 @@ std::string purpose(const std::string& provider) { return "cloud-accounts-" + pr
 
 CloudAccountSet::CloudAccountSet(std::string provider_id, Hooks hooks) : m_provider(std::move(provider_id)), m_hooks(std::move(hooks)) {}
 
+bool CloudAccountSet::read_locked()
+{
+    std::string text;
+    try {
+        boost::nowide::ifstream f(accounts_file(m_provider).string(), std::ios::binary);
+        if (!f)
+            return true;
+        const std::string sealed((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        text = SecretBox::open(sealed, purpose(m_provider));
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(warning) << "Cloud accounts: could not read the saved " << m_provider << " accounts: " << e.what();
+        return false;
+    }
+    // A file that opens but holds no account list is damaged, and is replaced on the next save.
+    const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_array()) {
+        BOOST_LOG_TRIVIAL(warning) << "Cloud accounts: the saved " << m_provider << " accounts are damaged";
+        return true;
+    }
+    for (const nlohmann::json& a : j) {
+        if (!a.is_object() || !a.contains("key") || !a["key"].is_string() || a["key"].get<std::string>().empty())
+            continue;
+        const std::string key = a["key"].get<std::string>();
+        if (std::any_of(m_accounts.begin(), m_accounts.end(), [&key](const SavedCloudAccount& s) { return s.key == key; }))
+            continue;
+        SavedCloudAccount acc;
+        acc.key   = key;
+        acc.label = a.contains("label") && a["label"].is_string() ? a["label"].get<std::string>() : std::string();
+        acc.data  = a.contains("data") ? a["data"] : nlohmann::json();
+        m_accounts.push_back(std::move(acc));
+    }
+    return true;
+}
+
 void CloudAccountSet::load_locked()
 {
     if (m_loaded)
         return;
     m_loaded = true;
-    try {
-        boost::nowide::ifstream f(accounts_file(m_provider).string(), std::ios::binary);
-        if (!f)
-            return;
-        const std::string    sealed((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        const nlohmann::json j = nlohmann::json::parse(SecretBox::open(sealed, purpose(m_provider)), nullptr, false);
-        if (!j.is_array())
-            return;
-        for (const nlohmann::json& a : j) {
-            if (!a.is_object() || !a.contains("key") || !a["key"].is_string() || a["key"].get<std::string>().empty())
-                continue;
-            SavedCloudAccount acc;
-            acc.key   = a["key"].get<std::string>();
-            acc.label = a.value("label", std::string());
-            acc.data  = a.contains("data") ? a["data"] : nlohmann::json();
-            m_accounts.push_back(std::move(acc));
-        }
-    } catch (const std::exception& e) {
-        BOOST_LOG_TRIVIAL(warning) << "Cloud accounts: could not read the saved " << m_provider << " accounts: " << e.what();
-    }
+    m_unread = !read_locked();
 }
 
-void CloudAccountSet::save_locked() const
+void CloudAccountSet::save_locked()
 {
+    // The file couldn't be read before: read it now, so its accounts are kept. Still unreadable, it
+    // stays as it is, and this change only lasts for this session.
+    if (m_unread)
+        m_unread = !read_locked();
+    if (m_unread) {
+        BOOST_LOG_TRIVIAL(warning) << "Cloud accounts: not saving the " << m_provider << " accounts over a file that can't be read";
+        return;
+    }
     nlohmann::json j = nlohmann::json::array();
     for (const SavedCloudAccount& a : m_accounts)
         j.push_back({{"key", a.key}, {"label", a.label}, {"data", a.data}});
     try {
-        const boost::filesystem::path path = accounts_file(m_provider);
-        boost::filesystem::create_directories(path.parent_path());
-        const std::string        sealed = SecretBox::seal(j.dump(), purpose(m_provider));
-        boost::nowide::ofstream f(path.string(), std::ios::binary | std::ios::trunc);
-        f.write(sealed.data(), static_cast<std::streamsize>(sealed.size()));
+        SecretBox::write_private_file(accounts_file(m_provider).string(), SecretBox::seal(j.dump(), purpose(m_provider)));
     } catch (const std::exception& e) {
         BOOST_LOG_TRIVIAL(error) << "Cloud accounts: could not save the " << m_provider << " accounts: " << e.what();
     }
@@ -181,14 +200,15 @@ void CloudAccountSet::remove(const std::string& key, const std::function<void()>
     }
 }
 
-void CloudAccountSet::update(const std::string& key, const nlohmann::json& data)
+void CloudAccountSet::update(const std::string& key, const nlohmann::json& before, const nlohmann::json& data)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     load_locked();
     for (SavedCloudAccount& a : m_accounts)
-        if (a.key == key && a.data != data) {
+        if (a.key == key && a.data == before && a.data != data) {
             a.data = data;
             save_locked();
+            return;
         }
 }
 
@@ -244,7 +264,7 @@ std::vector<CloudPrinter> OtherAccountPrinters::merge(std::vector<CloudPrinter> 
                     errors += (errors.empty() ? "" : "\n") + label + ": " + wxString::FromUTF8(e.what());
                 }
                 if (data != a.data)
-                    set->update(a.key, data);
+                    set->update(a.key, a.data, data);
             }
             {
                 std::lock_guard<std::mutex> lock(self->m_mutex);

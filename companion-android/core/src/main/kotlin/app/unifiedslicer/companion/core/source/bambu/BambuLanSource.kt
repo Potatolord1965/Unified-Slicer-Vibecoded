@@ -10,7 +10,9 @@ import app.unifiedslicer.companion.core.model.LanPrinter
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.net.MqttLink
+import app.unifiedslicer.companion.core.net.bambuPrinterSocketFactory
 import app.unifiedslicer.companion.core.net.bareHost
+import app.unifiedslicer.companion.core.net.certificateProblem
 import app.unifiedslicer.companion.core.net.mergeJson
 import app.unifiedslicer.companion.core.net.obj
 import app.unifiedslicer.companion.core.net.parseJson
@@ -20,7 +22,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * A Bambu printer in LAN mode: MQTT over TLS on port 8883, user "bblp", password = the access
- * code from the printer's screen. The printer's certificate is self-signed, so it is not verified.
+ * code from the printer's screen. The printer's certificate must be Bambu Lab's and name [serial].
  */
 class BambuLanSource(override val account: LanPrinter) : PrinterSource, Controllable, CameraCapable {
     private val serial = account.serial.trim()
@@ -33,7 +35,7 @@ class BambuLanSource(override val account: LanPrinter) : PrinterSource, Controll
         username = "bblp",
         password = account.secret,
         topics = listOf("device/$serial/report"),
-        insecureTls = true,
+        tls = bambuPrinterSocketFactory(serial),
         onConnected = { it.publish("device/$serial/request", PUSH_ALL) },
     ) { _, payload ->
         val message = parseJson(payload)
@@ -53,6 +55,8 @@ class BambuLanSource(override val account: LanPrinter) : PrinterSource, Controll
         } catch (e: app.unifiedslicer.companion.core.net.AuthException) {
             throw e
         } catch (e: java.io.IOException) {
+            // A device that fails the certificate check isn't this printer being off: say why.
+            certificateProblem(e)?.let { throw java.io.IOException(it, e) }
             return listOf(PrinterStatus(account.id, serial, account.label, "", Brand.BAMBU, VIA, PrinterState.OFFLINE))
         }
         val r = report ?: return listOf(PrinterStatus(account.id, serial, account.label, "", Brand.BAMBU, VIA, PrinterState.UNKNOWN))
@@ -69,9 +73,10 @@ class BambuLanSource(override val account: LanPrinter) : PrinterSource, Controll
         val host = bareHost(account.host)
         val rtsp = report.obj("ipcam").str("rtsp_url")
         return when {
-            rtsp == null -> CameraFeed.BambuJpeg(host, account.secret)
+            rtsp == null -> CameraFeed.BambuJpeg(host, account.secret, serial)
             rtsp.startsWith("rtsp") -> CameraFeed.BambuRtsp(
-                "rtsp://bblp:" + java.net.URLEncoder.encode(account.secret, "UTF-8") + "@$host:322/streaming/live/1"
+                "rtsp://bblp:" + java.net.URLEncoder.encode(account.secret, "UTF-8") + "@$host:322/streaming/live/1",
+                serial,
             )
             else -> throw java.io.IOException("Turn on LAN Only Liveview on the printer's screen to watch the camera")
         }
