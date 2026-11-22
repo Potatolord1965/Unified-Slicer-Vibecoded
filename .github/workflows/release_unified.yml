@@ -11,7 +11,8 @@ name: Release Unified Slicer
 # published, and the app links to its page instead of installing it.
 #
 # Trigger: Actions tab -> "Release Unified Slicer" -> Run workflow. Leave run_id
-# empty to use the latest successful "Build all" run on main. A version that is
+# empty to use the latest successful "Build all" run on main; a run_id given by hand
+# must also be a successful "Build all" run of a push to main in this repository. A version that is
 # already released is only replaced when "replace" is ticked: installed copies
 # never see a changed package under the same version, so bump UNIFIED_VERSION.
 
@@ -55,6 +56,20 @@ jobs:
           fi
           if [ -z "$run_id" ]; then
             echo "::error::No successful Build all run on main found."
+            exit 1
+          fi
+          # Only a successful Build all run of a push to main in this repository: Build all also
+          # runs on pull requests, including ones from forks, and their builds must never ship.
+          run=$(gh api "repos/$REPO/actions/runs/$run_id")
+          path=$(jq -r '.path // ""' <<< "$run")
+          path=${path%%@*}
+          event=$(jq -r '.event // ""' <<< "$run")
+          branch=$(jq -r '.head_branch // ""' <<< "$run")
+          head_repo=$(jq -r '.head_repository.full_name // ""' <<< "$run")
+          conclusion=$(jq -r '.conclusion // ""' <<< "$run")
+          if [ "$path" != ".github/workflows/build_all.yml" ] || [ "$event" != "push" ] || [ "$branch" != "main" ] ||
+             [ "$head_repo" != "$REPO" ] || [ "$conclusion" != "success" ]; then
+            echo "::error::Run $run_id is not a successful Build all run of a push to main in $REPO ($path, $event, $branch, $head_repo, $conclusion)."
             exit 1
           fi
           sha=$(gh run view "$run_id" --repo "$REPO" --json headSha --jq '.headSha')

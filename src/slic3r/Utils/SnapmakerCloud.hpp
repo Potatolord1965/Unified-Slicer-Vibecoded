@@ -24,6 +24,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -129,6 +130,9 @@ struct Uploaded
 std::string token_from_url(const std::string& url);
 // The token in the body of the OAuth callback page ({"data":{"access_token":...}}).
 std::string token_from_callback_body(const std::string& body);
+// The region of a Snapmaker ID page (https on snapmaker.com, snapmaker.cn or a subdomain of them), or
+// nothing for any other page: a sign-in token is only taken from Snapmaker's own pages.
+std::optional<Region> sign_in_region(const std::string& url);
 
 std::map<std::string, std::string> headers(const Session& session);
 

@@ -857,30 +857,16 @@ std::string ElegooCloud::login_user_agent(bool dark)
            SLIC3R_APP_KEY + "/" + SLIC3R_VERSION;
 }
 
-// The lower-case host of an https URL; empty for any other URL and for one with user info.
-static std::string https_host(const std::string& url)
-{
-    static const std::string scheme = "https://";
-    if (url.compare(0, scheme.size(), scheme) != 0)
-        return {};
-    std::string host = url.substr(scheme.size(), url.find_first_of("/?#", scheme.size()) - scheme.size());
-    if (host.find('@') != std::string::npos)
-        return {};
-    host = host.substr(0, host.find(':'));
-    std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-    return host;
-}
-
 bool ElegooCloud::is_login_page(const std::string& url)
 {
     // LOGIN_GLOBAL's site, which serves both regions.
-    const std::string host = https_host(url);
+    const std::string host = Http::https_host(url);
     return host == "www.nexprint.com" || host == "nexprint.com" || host == "www.nexprint.cn" || host == "nexprint.cn";
 }
 
 bool ElegooCloud::is_elegoo_page(const std::string& url)
 {
-    const std::string host = https_host(url);
+    const std::string host = Http::https_host(url);
     if (host.empty())
         return false;
     for (const char* site : {"nexprint.com", "nexprint.cn", "elegoo.com", "elegoo.com.cn"}) {
@@ -1322,25 +1308,30 @@ ElegooPrinterStatus ElegooCloud::live_status(const std::string& serial)
     const json ps = obj("print_status");
 
     ElegooPrinterStatus s;
-    // Same mapping as the CC2 LAN plug-in (elegoo_cc2_lan.py, gcode_state).
-    const int st  = int(num(ms, "status"));
+    // Same mapping as the CC2 LAN plug-in (elegoo_cc2_lan.py, gcode_state) and the phone app
+    // (ElegooStatus.kt). A missing or unlisted code is unknown, never idle.
+    const int st  = ms.contains("status") && ms["status"].is_number() ? int(num(ms, "status")) : -1;
     const int sub = int(num(ms, "sub_status"));
     if (st == 2) {
         if (sub == 2501 || sub == 2502 || sub == 2505)
             s.state = "PAUSE";
         else if (sub == 2077)
             s.state = "FINISH";
-        else if (sub == 2503 || sub == 2504)
+        else if (sub == 2504)
             s.state = "FAILED";
         else if (sub == 1045 || sub == 1096 || sub == 1405 || sub == 1906 || sub == 1041 || sub == 2801 || sub == 2802 ||
                  sub == 2901 || sub == 2902)
             s.state = "PREPARE";
-        else
+        else // 2503 "Stopping" still moves, so it stays printing until 2504 "Stopped".
             s.state = "RUNNING";
+    } else if (st == 1) {
+        s.state = sub == 2077 ? "FINISH" : "IDLE";
     } else if (st == 14) {
         s.state = "FAILED";
     } else if (st == 0) {
         s.state = "PREPARE";
+    } else {
+        s.state = "UNKNOWN";
     }
     s.progress     = int(num(ms, "progress"));
     s.remaining_s  = int(num(ps, "remaining_time_sec"));

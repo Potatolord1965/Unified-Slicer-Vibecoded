@@ -212,6 +212,8 @@ public:
 	static std::string get_filename_from_url(const std::string &url);
 	static std::string get_host_from_url(const std::string &url, std::string *port = nullptr);
 	static std::string get_host_header_value(const std::string &url);
+	// The lower-case host of an https URL; empty for any other URL and for one with user info.
+	static std::string https_host(const std::string &url);
 private:
 	Http(const std::string &url);
 

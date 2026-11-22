@@ -101,7 +101,7 @@ struct ElegooPrintOptions
 // Live printer status (method 1002), as the printer reports it.
 struct ElegooPrinterStatus
 {
-    std::string state{"IDLE"}; // IDLE, PREPARE, RUNNING, PAUSE, FINISH, FAILED
+    std::string state{"UNKNOWN"}; // IDLE, PREPARE, RUNNING, PAUSE, FINISH, FAILED, UNKNOWN
     int         progress{0};   // percent
     int         remaining_s{0};
     int         layer{0};
