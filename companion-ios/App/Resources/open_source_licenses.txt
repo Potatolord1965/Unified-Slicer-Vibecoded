@@ -1,0 +1,12 @@
+Open-source licenses
+
+Unified Monitor is free software under the GNU Affero General Public License, version 3, with an
+added permission to use the Agora RTM SDK (LICENSE-EXCEPTION). Source code:
+https://github.com/Potatolord1965/Unified-Slicer-Vibecoded/tree/main/companion-ios
+
+Everything else it uses is part of iOS (SwiftUI, Foundation, Network, WebKit, AVFoundation,
+CryptoKit, Security).
+
+Proprietary
+- Agora RTM SDK (Agora.io). Closed-source; used under Agora's own terms
+  (https://www.agora.io/en/terms-of-service/). Only used to talk to Elegoo cloud printers.
