@@ -429,6 +429,10 @@ bool ToolOrdering::insert_wipe_tower_extruder()
 {
     if (!m_print_config_ptr || !m_print_config_ptr->enable_prime_tower)
         return false;
+    // BELT_MOD -- a belt printer has no classic wipe tower (Print::has_wipe_tower()); the dedicated
+    // wipe tower filament must not add tool changes to the belt purge prism's plan. (OrcaSlicer 2.5.1)
+    if (m_print_config_ptr->belt_printer)
+        return false;
     if (m_print_config_ptr->wipe_tower_filament == 0)
         return false;
 
@@ -2967,8 +2971,9 @@ void ToolOrdering::reorder_extruders_for_minimum_flush_volume(bool reorder_first
             const size_t stride = size_t(std::sqrt(double(flush_matrix.size())) + EPSILON);
             for (unsigned int i = 0; i < number_of_extruders; ++i) {
                 std::vector<float> row(number_of_extruders, float(print_config->prime_volume));
-                for (size_t j = 0; i < stride && j < std::min<size_t>(number_of_extruders, stride); ++j)
-                    row[j] = flush_matrix[i * stride + j];
+                if (i < stride)
+                    for (size_t j = 0; j < std::min<size_t>(number_of_extruders, stride); ++j)
+                        row[j] = flush_matrix[i * stride + j];
                 wipe_volumes.push_back(std::move(row));
             }
         } else {

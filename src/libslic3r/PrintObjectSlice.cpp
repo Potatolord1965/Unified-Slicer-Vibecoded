@@ -1219,9 +1219,11 @@ void PrintObject::slice()
                 Slic3r::format(_u8L("Nonplanar layers skipped for %1%: %2%. It prints with normal planar layers."), this->model_object()->name, skip));
         else if (skipped_tops > 0)
             // A band that could not be filled is dropped; the planar top surface it would have replaced is kept.
+            // libslic3r has no plural lookup, so the count stands apart from the sentence.
             this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
-                Slic3r::format(_u8L("Nonplanar layers: %1% curved top surface(s) of %2% could not be built. They print with normal planar layers."),
-                               skipped_tops, this->model_object()->name));
+                // TRN %1% is an object name, %2% the number of its top surfaces printed planar.
+                Slic3r::format(_u8L("Nonplanar layers: not every curved top surface of %1% could be built. Surfaces printed with normal planar layers instead: %2%"),
+                               this->model_object()->name, skipped_tops));
         m_print->throw_if_canceled();
     }
     int firstLayerReplacedBy = 0;

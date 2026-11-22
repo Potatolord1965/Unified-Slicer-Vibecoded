@@ -27,6 +27,8 @@
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
 #include <wx/dialog.h>
+#include <wx/defs.h>
+#include <wx/event.h>
 #include <wx/secretstore.h>
 #include <wx/stattext.h>
 #include <wx/sizer.h>
@@ -181,15 +183,44 @@ bool is_model_file_url(const wxString& url)
     return false;
 }
 
+// An https page of one of the pane's model sites.
+bool is_model_site_page(const wxString& url)
+{
+    const wxURI uri(url);
+    if (uri.GetScheme().Lower() != "https" || uri.HasUserInfo())
+        return false;
+    const std::string host = uri.GetServer().Lower().utf8_string();
+    for (const char* site : {"unlayered3d.com", "makerworld.com", "makerworld.com.cn", "nexprint.com", "nexprint.cn", "snapmaker.com",
+                             "thingiverse.com"})
+        if (host == site || boost::ends_with(host, std::string(".") + site))
+            return true;
+    return false;
+}
+
 // Hands a model link to the URL downloader, which saves it to the download folder and loads it
-// into the plater. Deferred: this runs inside a native webview navigation callback.
-void import_model_url(const wxString& url)
+// into the plater. The pane can wander to any site, so a link from a page that isn't one of the
+// model sites (`page`) is only followed once the person agrees. Deferred: this runs inside a
+// native webview navigation callback.
+void import_model_url(const wxString& url, const wxString& page)
 {
     std::string link = url.utf8_string();
     if (!is_slicer_open_url(url))
         link = "orcaslicer://open?file=" + Http::url_encode(link);
-    BOOST_LOG_TRIVIAL(info) << "model site pane: importing " << WebView::RedactUrl(url).ToUTF8().data();
-    wxGetApp().CallAfter([link] { wxGetApp().start_download(link); });
+    const bool     ask  = !is_model_site_page(page);
+    const wxString host = wxURI(page).GetServer();
+    BOOST_LOG_TRIVIAL(info) << "model site pane: " << (ask ? "asking to import " : "importing ") << WebView::RedactUrl(url).ToUTF8().data();
+    wxGetApp().CallAfter([link, ask, host] {
+        if (ask) {
+            // TRN %1% is a website's host name, e.g. "www.example.com".
+            const wxString text = host.empty() ? _L("A page wants to open a model in Unified Slicer. Download and open it?") :
+                                                 format_wxstr(_L("A page on %1% wants to open a model in Unified Slicer. Download and open it?"), host);
+            MessageDialog dlg(wxGetApp().mainframe, text, _L("Open model"), wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+            dlg.SetButtonLabel(wxID_NO, _L("No"), /*set_focus=*/true); // MsgDialog ignores wxNO_DEFAULT
+            if (dlg.ShowModal() != wxID_YES)
+                return;
+        }
+        wxGetApp().start_download(link);
+    });
 }
 
 std::string sha256_hex(const std::string& data)
@@ -311,6 +342,7 @@ unsigned unlayered_post(const std::string& path, const json& body, const std::st
     http.header("User-Agent", std::string(SLIC3R_APP_KEY) + "/" + SLIC3R_VERSION)
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
+        .tls_verify(true)
         .timeout_connect(10)
         .timeout_max(30)
         .size_limit(64 * 1024)
@@ -324,6 +356,20 @@ unsigned unlayered_post(const std::string& path, const json& body, const std::st
     if (!reply.is_object())
         reply = json::object();
     return status;
+}
+
+// A field of a provider answer, empty (false) when missing or of another type: json::value()
+// would throw, and the answers are read on worker threads.
+std::string reply_string(const json& reply, const char* key)
+{
+    const auto it = reply.find(key);
+    return it != reply.end() && it->is_string() ? it->get<std::string>() : std::string();
+}
+
+bool reply_flag(const json& reply, const char* key)
+{
+    const auto it = reply.find(key);
+    return it != reply.end() && it->is_boolean() && it->get<bool>();
 }
 
 // The refusal message a provider answer carries, if any.
@@ -391,16 +437,16 @@ private:
                     SetTitle(e.GetString());
             });
             m_browser->Bind(wxEVT_WEBVIEW_WINDOW_CLOSE_REQUESTED, [this](wxWebViewEvent&) { CallAfter([this] { Destroy(); }); });
-            m_browser->Bind(wxEVT_WEBVIEW_NAVIGATING, [](wxWebViewEvent& e) {
+            m_browser->Bind(wxEVT_WEBVIEW_NAVIGATING, [this](wxWebViewEvent& e) {
                 if (is_slicer_open_url(e.GetURL()) || is_model_file_url(e.GetURL())) {
                     e.Veto();
-                    import_model_url(e.GetURL());
+                    import_model_url(e.GetURL(), m_browser->GetCurrentURL());
                 }
             });
-            m_browser->Bind(wxEVT_WEBVIEW_NEWWINDOW, [](wxWebViewEvent& e) {
+            m_browser->Bind(wxEVT_WEBVIEW_NEWWINDOW, [this](wxWebViewEvent& e) {
                 if (is_slicer_open_url(e.GetURL()) || is_model_file_url(e.GetURL())) {
                     e.Veto();
-                    import_model_url(e.GetURL());
+                    import_model_url(e.GetURL(), m_browser->GetCurrentURL());
                 }
             });
             m_browser->Bind(wxEVT_WEBVIEW_NEWWINDOW_FEATURES, [this](wxWebViewEvent& e) { open_popup(this, e); });
@@ -673,7 +719,7 @@ void ModelSiteView::on_webview_event(wxWebViewEvent& evt)
     if (type == wxEVT_WEBVIEW_NAVIGATING) {
         if (is_slicer_open_url(url) || is_model_file_url(url)) {
             evt.Veto();
-            import_model_url(url);
+            import_model_url(url, m_browser->GetCurrentURL());
             return;
         }
         // Unlayered's sign-in link: signed in by the app, as Unlayered Slicer does (§6).
@@ -688,7 +734,7 @@ void ModelSiteView::on_webview_event(wxWebViewEvent& evt)
     } else if (type == wxEVT_WEBVIEW_NEWWINDOW) {
         if (is_slicer_open_url(url) || is_model_file_url(url)) {
             evt.Veto();
-            import_model_url(url);
+            import_model_url(url, m_browser->GetCurrentURL());
         } else if (m_site == "unlayered" && is_unlayered_login(url)) {
             evt.Veto();
             unlayered_sign_in(unlayered_login_next(url));
@@ -825,13 +871,21 @@ void ModelSiteView::nexprint_respond(const std::string& id, const std::string& m
                                      const std::string& message)
 {
     const json reply = {{"id", id}, {"method", method}, {"type", "response"}, {"code", code}, {"message", message}, {"data", data}};
-    run_script(wxString::FromUTF8("window.HandleStudio && window.HandleStudio(" + reply.dump() + ")"));
+    nexprint_run(wxString::FromUTF8("window.HandleStudio && window.HandleStudio(" + reply.dump() + ")"));
 }
 
 void ModelSiteView::nexprint_event(const std::string& method, const json& data)
 {
     const json event = {{"id", random_token().substr(0, 16)}, {"method", method}, {"type", "event"}, {"data", data}};
-    run_script(wxString::FromUTF8("window.HandleStudio && window.HandleStudio(" + event.dump() + ")"));
+    nexprint_run(wxString::FromUTF8("window.HandleStudio && window.HandleStudio(" + event.dump() + ")"));
+}
+
+void ModelSiteView::nexprint_run(const wxString& script)
+{
+    // Replies and events can carry the Elegoo tokens. The page is checked again here, not only when
+    // its message came in: it may have moved on while a sign-in window was open.
+    if (m_browser != nullptr && is_nexprint_page(m_browser->GetCurrentURL()))
+        run_script(script);
 }
 
 void ModelSiteView::nexprint_message(const json& msg)
@@ -1044,7 +1098,7 @@ void ModelSiteView::unlayered_web_session(const std::string& next, const wxStrin
     std::thread([this, alive, next, fallback, token] {
         json           reply;
         const unsigned status = unlayered_post("/api/slicer/web-session", {{"next", next}}, token, reply);
-        std::string    path   = reply.value("path", "");
+        std::string    path   = reply_string(reply, "path");
         const bool     ok     = status >= 200 && status < 300 && boost::starts_with(path, "/api/slicer/web-session?code=") &&
                          path.find_first_of(" \t\r\n") == std::string::npos;
         wxGetApp().CallAfter([this, alive, ok, path, status, fallback] {
@@ -1095,7 +1149,7 @@ void ModelSiteView::unlayered_sign_in(const std::string& next)
 
         json     reply;
         unsigned status = unlayered_post("/api/login/handoff/start", json::object(), {}, reply);
-        const std::string id = reply.value("id", ""), secret = reply.value("secret", "");
+        const std::string id = reply_string(reply, "id"), secret = reply_string(reply, "secret");
         if (status < 200 || status >= 300 || id.empty() || secret.empty()) {
             const std::string why = unlayered_error(reply);
             finish(why.empty() ? _u8L("Could not reach the Unlayered sign-in service. Check the internet connection and try again.") : why);
@@ -1125,9 +1179,9 @@ void ModelSiteView::unlayered_sign_in(const std::string& next)
                 return;
             json     r;
             unsigned st = unlayered_post("/api/slicer/device/collect", {{"id", id}, {"secret", secret}, {"label", label}}, {}, r);
-            if (st == 0 || (st >= 200 && st < 300 && r.value("pending", false)))
+            if (st == 0 || (st >= 200 && st < 300 && reply_flag(r, "pending")))
                 continue;
-            const std::string token = r.value("token", "");
+            const std::string token = reply_string(r, "token");
             if (st >= 200 && st < 300 && !token.empty()) {
                 wxGetApp().CallAfter([this, alive, token, next, fallback] {
                     unlayered_set_token(token);
@@ -1194,6 +1248,7 @@ void ModelSiteView::unlayered_open_from_url(const std::string& id, const json& p
     std::weak_ptr<bool> alive    = m_alive;
     auto                last_mib = std::make_shared<size_t>(0);
     Http::get(url)
+        .tls_verify(true)
         .size_limit(UNLAYERED_MAX_DOWNLOAD)
         .timeout_max(600)
         .on_progress([this, alive, id, last_mib](Http::Progress p, bool&) {
@@ -1225,7 +1280,7 @@ void ModelSiteView::unlayered_open_from_url(const std::string& id, const json& p
                         frame->select_tab(wxString(TAB_ID_PREPARE));
                     if (Plater* plater = wxGetApp().plater()) {
                         if (ext == "3mf")
-                            plater->load_project(from_path(path));
+                            plater->load_downloaded([plater, &path] { plater->load_project(from_path(path)); });
                         else
                             plater->load_files(std::vector<fs::path>{path}, LoadStrategy::LoadModel);
                     }
@@ -1309,6 +1364,7 @@ void ModelSiteView::unlayered_install_preset(const std::string& id, const json& 
     };
 
     Http::get(url)
+        .tls_verify(true)
         .size_limit(UNLAYERED_MAX_PRESET)
         .timeout_max(60)
         .on_complete([finish, expected](std::string body, unsigned) {
@@ -1335,7 +1391,7 @@ void ModelSiteView::unlayered_install_preset(const std::string& id, const json& 
                 // not installed here is dropped (shared profiles are flattened, so they stand alone).
                 for (const std::string& key : UNLAYERED_SECRET_KEYS)
                     preset.erase(key);
-                const std::string inherits = preset.value("inherits", "");
+                const std::string inherits = reply_string(preset, "inherits");
                 if (!inherits.empty() && bundle->printers.find_preset(inherits, false) == nullptr)
                     preset["inherits"] = "";
                 preset["from"] = "User";

@@ -18,10 +18,11 @@ namespace Slic3r { namespace GUI {
 // button opens UpdateScreen. With automatic updates on (the default) the package is downloaded in
 // the background and installed when the app closes, or straight away from "Restart and update".
 //
-// Installing is Windows only: the release must carry UnifiedSlicer-<version>-win64.zip and a
-// matching .sha256 file. The zip is checked against that hash, then a small PowerShell script
-// waits for the app to exit, copies the package over the install folder (asking for
-// administrator rights only when that folder is not writable) and restarts the app if asked.
+// Installing is Windows only: the release must carry UnifiedSlicer-<version>-win64.zip, its .sha256
+// file and that file's Ed25519 signature (.sha256.sig) by the key in UpdateSignature. The zip is
+// checked against the signed hash, then a helper waits for the app to exit and runs
+// resources/updater/apply_update.ps1, with administrator rights only when the install folder is
+// not writable. See docs/HLSD/updater.md.
 class UnifiedUpdater
 {
 public:
@@ -35,6 +36,7 @@ public:
         std::string zip_url;     // Windows package, empty when the release has none
         std::string zip_name;
         std::string sha256_url;
+        std::string sig_url;     // signature of the .sha256 file
         size_t      zip_size{0};
     };
 
@@ -44,7 +46,7 @@ public:
     void check();
     // Downloads and verifies the package of the available release.
     void download();
-    // True when this build can install a package itself (Windows, with a package in the release).
+    // True when this build can install a package itself (Windows, with a signed package in the release).
     bool can_install() const;
     // Marks the downloaded package to be installed with a restart, then closes the main window.
     // The install itself starts from install_pending() once the app has shut down.
@@ -59,6 +61,9 @@ public:
     double      progress() const;
     // What the last install attempt wrote to its log, when it failed; empty otherwise.
     std::string last_install_error() const;
+    // True when Windows was refused administrator rights for this release's package, which then
+    // only installs from "Restart and update".
+    bool        install_declined() const;
 
     static bool auto_install_enabled();
     static void set_auto_install(bool enable);
@@ -75,6 +80,9 @@ private:
     std::string updates_dir() const;
     std::string package_path() const;
     void        read_last_install_log();
+    // Downloads a small release asset (checksum, signature) and passes its body to `then`.
+    void        fetch_asset(const std::string& url, std::function<void(std::string)> then);
+    void        download_verified(const Release& rel, const std::string& checksum, const std::string& signature);
 
     mutable std::mutex                    m_mutex;
     State                                 m_state{State::Idle};
@@ -82,6 +90,8 @@ private:
     std::string                           m_error;
     std::string                           m_sha256;
     std::string                           m_last_install_error;
+    // The package whose install was refused administrator rights, so it isn't offered at every exit.
+    std::string                           m_declined_package;
     double                                m_progress{0.};
     bool                                  m_restart_after_install{false};
     int                                   m_next_listener{1};

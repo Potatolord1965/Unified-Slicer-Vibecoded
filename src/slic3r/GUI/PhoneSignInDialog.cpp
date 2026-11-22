@@ -234,9 +234,12 @@ void PhoneSignInDialog::update_status()
         done   = false;
         break;
     }
-    case State::Delivered: status = _L("Sent. Your phone is signing in."); break;
+    case State::Delivered:
+        // TRN %1% is the network address of the device that fetched the sign-ins, e.g. "192.168.1.23".
+        status = format_wxstr(_L("Sent to the device at %1%. Your phone is signing in."), m_server.delivered_to());
+        break;
     case State::Expired: status = _L("This code expired. Make a new one to try again."); break;
-    case State::Failed: status = _L("This code was withdrawn after unexpected requests. Make a new one."); break;
+    case State::Failed: status = _L("This code stopped working. Make a new one."); break;
     case State::Idle:
         if (m_has_accounts)
             status = _L("Couldn't share on the network. Check that this computer is on Wi-Fi or Ethernet.");

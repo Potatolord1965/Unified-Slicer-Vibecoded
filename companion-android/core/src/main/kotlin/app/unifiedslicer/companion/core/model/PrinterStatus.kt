@@ -12,6 +12,15 @@ enum class PrinterState(val label: String, val active: Boolean) {
     FINISHED("Finished", false),
     FAILED("Failed", false),
     UNKNOWN("Unknown", false),
+    ;
+
+    /**
+     * Known to be between prints, so it takes moves and new prints. Never true for [UNKNOWN] or
+     * [OFFLINE]: a printer whose state isn't known may be printing. Sources map states they don't
+     * recognise to [UNKNOWN], and a print that is still winding down or waiting for the user to an
+     * active state, so [FAILED] only means "stopped".
+     */
+    val ready: Boolean get() = this == IDLE || this == FINISHED || this == FAILED
 }
 
 data class Temperature(val current: Double, val target: Double? = null)

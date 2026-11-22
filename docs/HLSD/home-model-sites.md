@@ -34,7 +34,15 @@ Thingiverse also gets the toolbar, with an **Open copied link** button: a sign-i
 link that arrives by email is copied and opened in the pane, so the session lands in the app.
 
 On every site, a link to a model file or an "Open in slicer" link (`bambustudio://`, `cura://`,
-`elegooslicer://`, ...) is imported into the plater through `GUI_App::start_download`.
+`elegooslicer://`, ...) is imported into the plater through `GUI_App::start_download`. Only https
+pages on the five model sites' domains (`is_model_site_page`) import straight away: a pane or pop-up
+that has wandered elsewhere gets a yes/no question naming the page's host first, so any web page
+can't push files into the app.
+
+A downloaded project can carry post-processing scripts, which run as programs on this computer
+whenever G-code is exported. Every download path opens its file through `Plater::load_downloaded`,
+which compares the process's scripts before and after the load; scripts the file brought in stay
+only after the user says yes in a dialog that lists them (No is the default).
 
 ## Unlayered account
 

@@ -4,6 +4,7 @@
 #include "slic3r/GUI/BusyWork.hpp"
 
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include <boost/log/trivial.hpp>
@@ -182,7 +183,7 @@ std::string bambu_api_base(const nlohmann::json& data)
 unsigned bambu_api(Http http, std::string& body)
 {
     unsigned status = 0;
-    http.header("Accept", "application/json").timeout_connect(10).timeout_max(30)
+    http.header("Accept", "application/json").tls_verify(true).timeout_connect(10).timeout_max(30)
         .on_complete([&](std::string b, unsigned s) { body = std::move(b); status = s; })
         .on_error([&](std::string b, std::string, unsigned s) { body = std::move(b); status = s; })
         .perform_sync();
@@ -443,6 +444,36 @@ bool BambuCloudProvider::handles_printer_preset(const DynamicPrintConfig& printe
 // PrinterAgentCloudProvider
 // ---------------------------------------------------------------------------------------------
 
+namespace {
+
+// Parses one discovery announcement (a printer agent's ssdp JSON) into a printer; false to skip it.
+// Free of the provider so that the other-account fetch, which runs on a worker thread, never
+// needs one.
+bool parse_agent_announcement(const std::string& json, const std::string& agent_id, CloudPrinter& out)
+{
+    try {
+        const nlohmann::json j = nlohmann::json::parse(json);
+        out.id = j.value("dev_id", std::string());
+        if (out.id.empty())
+            return false;
+        out.name  = from_u8(j.value("dev_name", out.id));
+        out.model = from_u8(j.value("dev_type", std::string()));
+        out.online = j.value("online", true);
+        if (j.contains("status") && j["status"].is_string())
+            out.status = from_u8(j["status"].get<std::string>());
+        else
+            out.status = out.online ? _L("Online") : _L("Offline");
+        if (j.contains("progress") && j["progress"].is_number())
+            out.progress = j["progress"].get<int>();
+        return true;
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(warning) << "Device hub: bad announcement from agent " << agent_id << ": " << e.what();
+        return false;
+    }
+}
+
+} // namespace
+
 PrinterAgentCloudProvider::PrinterAgentCloudProvider(
     std::string provider_id, wxString display_name, int order, std::string agent_id, std::string cloud_provider, wxColour brand_colour)
     : m_id(std::move(provider_id))
@@ -559,7 +590,7 @@ std::shared_ptr<IPrinterAgent> PrinterAgentCloudProvider::ensure_agent()
     m_agent->set_queue_on_main_fn([](std::function<void()> fn) { wxGetApp().CallAfter(std::move(fn)); });
     m_agent->set_on_ssdp_msg_fn([this](std::string json) {
         CloudPrinter p;
-        if (!parse_announcement(json, p))
+        if (!parse_agent_announcement(json, m_agent_id, p))
             return;
         p.provider_id = m_id;
         {
@@ -575,29 +606,6 @@ std::shared_ptr<IPrinterAgent> PrinterAgentCloudProvider::ensure_agent()
         CloudPrinterProviders::notify_changed(m_id);
     });
     return m_agent;
-}
-
-bool PrinterAgentCloudProvider::parse_announcement(const std::string& json, CloudPrinter& out) const
-{
-    try {
-        const nlohmann::json j = nlohmann::json::parse(json);
-        out.id = j.value("dev_id", std::string());
-        if (out.id.empty())
-            return false;
-        out.name  = from_u8(j.value("dev_name", out.id));
-        out.model = from_u8(j.value("dev_type", std::string()));
-        out.online = j.value("online", true);
-        if (j.contains("status") && j["status"].is_string())
-            out.status = from_u8(j["status"].get<std::string>());
-        else
-            out.status = out.online ? _L("Online") : _L("Offline");
-        if (j.contains("progress") && j["progress"].is_number())
-            out.progress = j["progress"].get<int>();
-        return true;
-    } catch (const std::exception& e) {
-        BOOST_LOG_TRIVIAL(warning) << "Device hub: bad announcement from agent " << m_agent_id << ": " << e.what();
-        return false;
-    }
 }
 
 void PrinterAgentCloudProvider::refresh_printers(PrintersCallback done)
@@ -657,7 +665,7 @@ CrealityCloudProvider::CrealityCloudProvider()
 {
     namespace CC = CrealityCloud;
     // The printers of another saved account, as the agent would announce them.
-    m_others = std::make_shared<OtherAccountPrinters>(id(), [this](nlohmann::json& data) {
+    m_others = std::make_shared<OtherAccountPrinters>(id(), [agent = agent_id()](nlohmann::json& data) {
         std::vector<CC::Device> devices;
         std::string             error;
         const int               code = CC::Client(creality_session(data)).list_devices(devices, error);
@@ -668,7 +676,7 @@ CrealityCloudProvider::CrealityCloudProvider()
         std::vector<CloudPrinter> out;
         for (const CC::Device& d : devices) {
             CloudPrinter p;
-            if (parse_announcement(CC::ssdp_payload(d).dump(), p))
+            if (parse_agent_announcement(CC::ssdp_payload(d).dump(), agent, p))
                 out.push_back(std::move(p));
         }
         return out;
@@ -995,9 +1003,9 @@ ElegooCloudProvider::ElegooCloudProvider()
         return true;
     };
     // Local only: ElegooCloud::sign_out() forgets the tokens without ending the session on Elegoo's
-    // side. The messaging session belongs to the account, so it is closed (blocking: off the GUI thread).
+    // side. The messaging session belongs to the account, so it is closed too.
     hooks.detach = [] {
-        std::thread([] { ElegooCloud::instance().close_live_session(); }).detach();
+        ElegooCloud::close_live_session_later();
         ElegooCloud::instance().sign_out();
     };
     m_account_set = std::make_shared<CloudAccountSet>(provider, std::move(hooks));

@@ -796,6 +796,8 @@ set(SLIC3R_GUI_SOURCES
     Utils/PhoneSignIn.hpp
     Utils/SecretBox.cpp
     Utils/SecretBox.hpp
+    Utils/UpdateSignature.cpp
+    Utils/UpdateSignature.hpp
     Utils/CrealityCloud.hpp
     Utils/CrealityCloudPrinterAgent.cpp
     Utils/CrealityCloudPrinterAgent.hpp

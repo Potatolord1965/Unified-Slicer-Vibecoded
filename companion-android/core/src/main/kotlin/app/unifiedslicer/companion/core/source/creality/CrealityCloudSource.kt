@@ -271,7 +271,8 @@ class CrealityCloudSource(override val account: CrealityAccount, private val ctx
             2 -> PrinterState.FINISHED
             3, 4 -> PrinterState.FAILED
             5 -> PrinterState.PAUSED
-            else -> PrinterState.IDLE
+            0 -> PrinterState.IDLE
+            else -> PrinterState.UNKNOWN
         }
 
         /** Timeseries reply: {key: [{ts, value}]} (possibly in the result envelope) → {key: value}. */

@@ -31,6 +31,9 @@ class HandoffTest {
     private fun code(hosts: String = "192.168.1.20", port: Int = 5000) =
         SignInCode.parse("unifiedslicer://signin?v=1&h=$hosts&p=$port&i=$id&k=$key")!!
 
+    // The test server listens on loopback, which a scanned code never names.
+    private fun served(hosts: List<String>, port: Int) = SignInCode(hosts, port, id, Base64.getUrlDecoder().decode(key))
+
     @Test fun parsesCode() {
         val c = code("192.168.1.20,10.0.0.5")
         assertEquals(listOf("192.168.1.20", "10.0.0.5"), c.hosts)
@@ -39,7 +42,11 @@ class HandoffTest {
         assertNull(SignInCode.parse("https://example.com/?v=1"))
         assertNull(SignInCode.parse("unifiedslicer://signin?v=2&h=1.2.3.4&p=1&i=$id&k=$key"))
         assertNull(SignInCode.parse("unifiedslicer://signin?v=1&h=evil.example&p=1&i=$id&k=$key"))
-        assertNull(SignInCode.parse("unifiedslicer://signin?v=1&h=1.2.3.4&p=1&i=$id&k=AAAA"))
+        assertNull(SignInCode.parse("unifiedslicer://signin?v=1&h=10.1.2.3&p=1&i=$id&k=AAAA"))
+        // Only addresses on the phone's own network: a link from a web page can't point the app anywhere else.
+        assertNull(SignInCode.parse("unifiedslicer://signin?v=1&h=8.8.8.8&p=1&i=$id&k=$key"))
+        assertNull(SignInCode.parse("unifiedslicer://signin?v=1&h=127.0.0.1&p=1&i=$id&k=$key"))
+        assertEquals(listOf("172.20.0.9", "100.64.1.2"), code("8.8.8.8,172.20.0.9,172.32.0.1,100.64.1.2").hosts)
     }
 
     @Test fun opensWhatTheDesktopSealed() {
@@ -60,7 +67,7 @@ class HandoffTest {
     @Test fun rejectsTamperedOrWrongCode() {
         val tampered = sealed.copyOf().also { it[20] = (it[20].toInt() xor 1).toByte() }
         try { SignInHandoff.open(code(), tampered); fail() } catch (_: HandoffException) {}
-        val otherId = SignInCode.parse("unifiedslicer://signin?v=1&h=1.2.3.4&p=1&i=BBECAwQFBgcICQoLDA0ODw&k=$key")!!
+        val otherId = SignInCode.parse("unifiedslicer://signin?v=1&h=10.1.2.3&p=1&i=BBECAwQFBgcICQoLDA0ODw&k=$key")!!
         try { SignInHandoff.open(otherId, sealed); fail() } catch (_: HandoffException) {}
     }
 
@@ -69,7 +76,7 @@ class HandoffTest {
             server.enqueue(MockResponse().setBody(Buffer().write(sealed)))
             server.start()
             // 192.0.2.1 is a documentation address nothing answers on; the loopback server does.
-            val got = SignInHandoff(OkHttpClient()).fetch(code("192.0.2.1,127.0.0.1", server.port))
+            val got = SignInHandoff(OkHttpClient()).fetch(served(listOf("192.0.2.1", "127.0.0.1"), server.port))
             assertEquals(4, got.accounts.size)
             assertEquals("/signin/$id", server.takeRequest().path)
         }
@@ -80,9 +87,21 @@ class HandoffTest {
             server.enqueue(MockResponse().setResponseCode(404))
             server.start()
             try {
-                SignInHandoff(OkHttpClient()).fetch(code("127.0.0.1", server.port)); fail()
+                SignInHandoff(OkHttpClient()).fetch(served(listOf("127.0.0.1"), server.port)); fail()
             } catch (e: HandoffException) {
                 assertTrue(e.message!!.contains("already used"))
+            }
+        }
+    }
+
+    @Test fun oversizedAnswerIsRefused() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(Buffer().write(ByteArray(2 shl 20))))
+            server.start()
+            try {
+                SignInHandoff(OkHttpClient()).fetch(served(listOf("127.0.0.1"), server.port)); fail()
+            } catch (e: HandoffException) {
+                assertTrue(e.message!!.contains("too large"))
             }
         }
     }

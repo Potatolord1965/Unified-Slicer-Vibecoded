@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <exception>
 #include <map>
 #include <memory>
 #include <string>
@@ -180,7 +181,22 @@ private:
     }
     void on_script_message(wxWebViewEvent& evt)
     {
-        const json msg = json::parse(evt.GetString().ToUTF8().data(), nullptr, false);
+        // Only the dialog's own page, a local file: a website it was led to must not reach the
+        // printer list or the upload.
+        if (m_browser == nullptr || !m_browser->GetCurrentURL().Lower().StartsWith("file:"))
+            return;
+        // A page can send any JSON; a field of the wrong type makes json::value() throw, which must
+        // not reach the event loop and end the app.
+        try {
+            handle_script_message(evt.GetString().utf8_string());
+        } catch (const std::exception& e) {
+            BOOST_LOG_TRIVIAL(warning) << "Elegoo send dialog: malformed page message ignored: " << e.what();
+        }
+    }
+
+    void handle_script_message(const std::string& body)
+    {
+        const json msg = json::parse(body, nullptr, false);
         if (!msg.is_object())
             return;
         const std::string type   = msg.value("type", "request");

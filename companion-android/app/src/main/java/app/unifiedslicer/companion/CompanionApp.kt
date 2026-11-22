@@ -23,7 +23,7 @@ class CompanionApp : Application() {
         accounts = AccountStore(this)
         settings = Settings(this)
         notifier = TransitionNotifier(this, settings)
-        printers = PrinterRepository(http, accounts, notifier)
+        printers = PrinterRepository(http, accounts, notifier) { inForeground }
         StatusWorker.schedule(this, settings.backgroundChecks.value)
     }
 }

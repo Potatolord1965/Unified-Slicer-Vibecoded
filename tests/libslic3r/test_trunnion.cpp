@@ -1,7 +1,11 @@
 #include <catch2/catch_all.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
 #include <random>
+#include <exception>
+#include <sstream>
+#include <string>
 
 #include "libslic3r/GCode/TrunnionAC.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -147,4 +151,78 @@ TEST_CASE("A/B is a tri-Z bed: a pivot in the bed plane and small default tilt l
     const double big = 12. * M_PI / 180., small = 2. * M_PI / 180.;
     CHECK_FALSE(solve(set, Vec3(std::sin(big), 0., std::cos(big)), Orientation{}, o));
     CHECK(solve(set, Vec3(std::sin(small), 0., std::cos(small)), Orientation{}, o));
+}
+
+namespace {
+
+Machine small_table()
+{
+    Machine m;
+    m.origin_x     = 110.;
+    m.origin_y     = 105.;
+    m.table_radius = 1.;
+    m.clearance    = 1.;
+    return m;
+}
+
+} // namespace
+
+TEST_CASE("Table-table output: a section turned past C 180 ends upright at C 360", "[TrunnionAC]")
+{
+    // Five sections at A 45 turn C to 240; going upright before the end G-code homes C to 360, which
+    // is upright too, so the custom G-code's G28 X and the move after it pass through.
+    const std::string gcode = "G90\nM83\nG1 X110 Y105 Z10 F3000\n; TOOL_AXIS:0,0,1\nG1 X111 Y105 E0.1\n"
+                              "; TOOL_AXIS:0,0.70710678,0.70710678\nG1 X111 Y106 Z11 E0.1\n"
+                              "; TOOL_AXIS:0.61237244,0.35355339,0.70710678\nG1 X112 Y106 Z11 E0.1\n"
+                              "; TOOL_AXIS:0.61237244,-0.35355339,0.70710678\nG1 X112 Y105 Z11 E0.1\n"
+                              "; TOOL_AXIS:0,-0.70710678,0.70710678\nG1 X111 Y104 Z11 E0.1\n"
+                              "; TOOL_AXIS:-0.61237244,-0.35355339,0.70710678\nG1 X110 Y104 Z11 E0.1\n"
+                              "; TOOL_AXIS:0,0,1\n; FEATURE: Custom\nG28 X\nG1 X10 Y10\nG92 E0\n";
+    std::istringstream in(gcode);
+    std::ostringstream out;
+    REQUIRE_NOTHROW(process(in, out, small_table()));
+    CHECK(out.str().find("G1 A0 C360") != std::string::npos);
+    CHECK(out.str().find("\nG1 X10 Y10") != std::string::npos);
+}
+
+TEST_CASE("Table-table output refuses a tilted move above the printable height", "[TrunnionAC]")
+{
+    // At A -45 a point 100 mm in front of the pivot rises to machine Z 72.
+    const std::string gcode = "G90\nM83\nG1 X110 Y105 Z1 F3000\n; TOOL_AXIS:0,0,1\nG1 X111 Y105 E0.1\n"
+                              "; TOOL_AXIS:0,-0.70710678,0.70710678\nG1 X110 Y106 Z2 E0.1\nG1 X110 Y5 Z2 E1\n";
+    Machine m = small_table();
+    {
+        std::istringstream in(gcode);
+        std::ostringstream out;
+        CHECK_NOTHROW(process(in, out, m));
+    }
+    m.max_z = 60.;
+    std::istringstream in(gcode);
+    std::ostringstream out;
+    std::string        error;
+    try {
+        process(in, out, m);
+    } catch (const std::exception &e) {
+        error = e.what();
+    }
+    INFO(error);
+    CHECK(error.find("above the printable height") != std::string::npos);
+}
+
+TEST_CASE("Table-table output splits arcs into lines on a tilted A/B bed", "[TrunnionAC]")
+{
+    // B tilts about Y, so at A = 0 and B 10 an arc is no longer in a horizontal plane.
+    const std::string gcode = "G90\nM83\nG1 X110 Y105 Z1 F3000\n; TOOL_AXIS:0,0,1\nG1 X111 Y105 E0.1\n"
+                              "; TOOL_AXIS:-0.17364818,0,0.98480775\nG1 X112 Y105 Z2 E0.1\nG2 X114 Y105 I1 J0 E0.2\n";
+    Machine m      = small_table();
+    m.kind         = Kind::AB;
+    m.c_continuous = false;
+    m.c_min        = -30.;
+    m.c_max        = 30.;
+    std::istringstream in(gcode);
+    std::ostringstream out;
+    REQUIRE_NOTHROW(process(in, out, m));
+    INFO(out.str());
+    CHECK(out.str().find("B10") != std::string::npos);
+    CHECK(out.str().find("\nG2") == std::string::npos);
 }

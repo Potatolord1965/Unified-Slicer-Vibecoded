@@ -22,7 +22,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.unifiedslicer.companion.core.HubSnapshot
 import app.unifiedslicer.companion.core.model.Account
-import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.source.PrintJob
 import app.unifiedslicer.companion.core.source.printBlockedReason
@@ -67,7 +66,7 @@ fun SendScreen(
         val printers = snapshot?.printers.orEmpty()
         val able = printers.filter { p -> byId[p.accountId]?.let { printableBy(it, job.name) } == true }
         var selected by rememberSaveable { mutableStateOf<String?>(null) }
-        val ready = able.filter { it.state != PrinterState.OFFLINE && !it.state.active }
+        val ready = able.filter { it.state.ready }
         val choice = able.firstOrNull { it.key == selected && it in ready } ?: ready.singleOrNull()
 
         if (able.isEmpty()) {

@@ -83,9 +83,6 @@ protected:
     // Forgets the printers seen so far, e.g. after the account changed.
     void clear_printers();
 
-    // Parses one discovery announcement (the agent's ssdp JSON) into a printer; false to skip it.
-    virtual bool parse_announcement(const std::string& json, CloudPrinter& out) const;
-
 private:
     std::shared_ptr<IPrinterAgent> ensure_agent();
 

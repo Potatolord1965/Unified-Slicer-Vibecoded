@@ -416,6 +416,7 @@ fs::path download_agora_libs(const ElegooProgressFn& progress)
         std::string body;
         Http::get(std::string(ELEGOO_LINK_RAW) + "/" + f.rel)
             .header("User-Agent", ElegooCloud::user_agent())
+            .tls_verify(true)
             .timeout_max(300)
             .on_complete([&](std::string b, unsigned) { body = std::move(b); })
             .on_error([&](std::string, std::string err, unsigned status) { error = err + " (HTTP " + std::to_string(status) + ")"; })
@@ -752,6 +753,7 @@ ElegooCloud& ElegooCloud::instance()
 struct ElegooCloud::LiveSession
 {
     std::string                     serial;
+    uint64_t                        epoch{0}; // m_live_epoch when it was opened
     std::unique_ptr<PrinterChannel> channel;
 };
 
@@ -855,16 +857,32 @@ std::string ElegooCloud::login_user_agent(bool dark)
            SLIC3R_APP_KEY + "/" + SLIC3R_VERSION;
 }
 
-bool ElegooCloud::is_elegoo_page(const std::string& url)
+// The lower-case host of an https URL; empty for any other URL and for one with user info.
+static std::string https_host(const std::string& url)
 {
     static const std::string scheme = "https://";
     if (url.compare(0, scheme.size(), scheme) != 0)
-        return false;
+        return {};
     std::string host = url.substr(scheme.size(), url.find_first_of("/?#", scheme.size()) - scheme.size());
     if (host.find('@') != std::string::npos)
-        return false;
+        return {};
     host = host.substr(0, host.find(':'));
     std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    return host;
+}
+
+bool ElegooCloud::is_login_page(const std::string& url)
+{
+    // LOGIN_GLOBAL's site, which serves both regions.
+    const std::string host = https_host(url);
+    return host == "www.nexprint.com" || host == "nexprint.com" || host == "www.nexprint.cn" || host == "nexprint.cn";
+}
+
+bool ElegooCloud::is_elegoo_page(const std::string& url)
+{
+    const std::string host = https_host(url);
+    if (host.empty())
+        return false;
     for (const char* site : {"nexprint.com", "nexprint.cn", "elegoo.com", "elegoo.com.cn"}) {
         const std::string s = site;
         if (host == s || (host.size() > s.size() && host.compare(host.size() - s.size() - 1, std::string::npos, "." + s) == 0))
@@ -1017,7 +1035,7 @@ json ElegooCloud::request(const std::string& method, const std::string& path, co
 {
     const std::string url = api_base() + path;
     Http http = method == "POST" ? Http::post(url) : method == "DELETE" ? Http::del(url) : Http::get(url);
-    http.header("User-Agent", user_agent()).header("Accept", "application/json").timeout_connect(15).timeout_max(30);
+    http.header("User-Agent", user_agent()).header("Accept", "application/json").tls_verify(true).timeout_connect(15).timeout_max(30);
     if (auth)
         http.header("Authorization", "Bearer " + account().access_token);
     if (body != nullptr) {
@@ -1260,11 +1278,13 @@ std::unique_lock<std::timed_mutex> ElegooCloud::live_lock()
 json ElegooCloud::live_request(const std::string& serial, int method, const json& params, int timeout_s)
 {
     for (int attempt = 0;; ++attempt) {
-        if (!m_live || m_live->serial != serial || !m_live->channel) {
+        if (!m_live || m_live->serial != serial || !m_live->channel || m_live->epoch != m_live_epoch) {
             m_live.reset();
+            const uint64_t epoch = m_live_epoch;
             const json cred = agora_credential(*this, [this](const std::string& p) { return call("GET", p); });
             auto       live = std::make_unique<LiveSession>();
             live->serial    = serial;
+            live->epoch     = epoch;
             live->channel   = std::make_unique<PrinterChannel>(cred, serial, nullptr);
             live->channel->set_raw_listener([this, serial](const std::string& message) {
                 RawMessageFn fn;
@@ -1359,10 +1379,15 @@ void ElegooCloud::command(const std::string& serial, ElegooCommand cmd)
     }
 }
 
-void ElegooCloud::close_live_session()
+void ElegooCloud::close_live_session_later()
 {
-    std::lock_guard<std::timed_mutex> rtm_lock(m_rtm_mutex);
-    m_live.reset();
+    const uint64_t closing = instance().m_live_epoch++;
+    std::thread([closing] {
+        ElegooCloud&                      cloud = instance();
+        std::lock_guard<std::timed_mutex> rtm_lock(cloud.m_rtm_mutex);
+        if (cloud.m_live && cloud.m_live->epoch <= closing)
+            cloud.m_live.reset();
+    }).detach();
 }
 
 void ElegooCloud::set_raw_listener(RawMessageFn fn)
@@ -1374,7 +1399,7 @@ void ElegooCloud::set_raw_listener(RawMessageFn fn)
 void ElegooCloud::send_raw(const std::string& serial, const std::string& message)
 {
     const auto rtm_lock = live_lock();
-    if (!m_live || m_live->serial != serial || !m_live->channel)
+    if (!m_live || m_live->serial != serial || !m_live->channel || m_live->epoch != m_live_epoch)
         live_request(serial, M_PRINTER_STATUS, json::object()); // opens the session (and checks the printer answers)
     try {
         m_live->channel->publish_raw(message);
@@ -1444,6 +1469,7 @@ std::string ElegooCloud::upload_to_storage(const std::string& server_name, const
     unsigned    status    = 0;
     bool        cancelled = false;
     Http::put(entry)
+        .tls_verify(true)
         .header("Content-Type", "application/octet-stream")
         .header("Content-MD5", md5_base64)
         // Cloudflare in front of the bucket rejects requests without a client identity.

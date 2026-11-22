@@ -1,34 +1,34 @@
 #include "UnifiedUpdater.hpp"
 
 #include <algorithm>
-#include <boost/optional/optional.hpp>
-#include <boost/filesystem/operations.hpp>
-#include <boost/filesystem/path.hpp>
-#include <cctype>
 #include <cstddef>
 #include <exception>
-#include <ios>
 #include <functional>
-#include <openssl/ossl_typ.h> // IWYU pragma: keep
+#include <ios>
 #include <mutex>
-#include <sstream>
 #include <string>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/nowide/fstream.hpp>
+#include <boost/optional/optional.hpp>
+#include <boost/system/error_code.hpp>
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
+#include <openssl/ossl_typ.h> // IWYU pragma: keep
 #include <wx/app.h>
 
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Semver.hpp"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/format.hpp"
 #include "libslic3r_version.h"
 #include "slic3r/Utils/Http.hpp"
+#include "slic3r/Utils/UpdateSignature.hpp"
 #include "GUI.hpp"
 #include "GUI_App.hpp"
 #include "I18N.hpp"
@@ -47,42 +47,11 @@ namespace Slic3r { namespace GUI {
 namespace {
 
 // The GitHub repository whose releases this build follows.
-constexpr const char* UNIFIED_UPDATE_REPO   = "Potatolord1965/Unified-Slicer-Vibecoded";
-constexpr const char* AUTO_INSTALL_KEY      = "auto_install_updates";
-constexpr const char* INSTALL_LOG_NAME      = "apply_update.log";
-constexpr const char* INSTALL_SCRIPT_NAME   = "apply_update.ps1";
-constexpr size_t      MAX_PACKAGE_SIZE      = size_t(2) * 1024 * 1024 * 1024 - 1;
-
-// Copies the package over the install folder once the app has exited. Kept as a script so that
-// the files of the running executable are no longer locked when they are replaced.
-constexpr const char* INSTALL_SCRIPT = R"PS(param([int]$WaitPid, [string]$Zip, [string]$Dest, [string]$Exe, [string]$Restart)
-$ErrorActionPreference = 'Stop'
-$dir = Split-Path -Parent $Zip
-$log = Join-Path $dir 'apply_update.log'
-function Log($m) { Add-Content -Path $log -Value ((Get-Date -Format s) + ' ' + $m) }
-Set-Content -Path $log -Value ((Get-Date -Format s) + ' starting')
-try {
-    try { Wait-Process -Id $WaitPid -Timeout 120 -ErrorAction SilentlyContinue } catch {}
-    $stage = Join-Path $dir 'staging'
-    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-    Expand-Archive -Path $Zip -DestinationPath $stage -Force
-    $exeName = Split-Path -Leaf $Exe
-    $src = $stage
-    if (-not (Test-Path (Join-Path $src $exeName))) {
-        $dirs = @(Get-ChildItem $src -Directory)
-        if ($dirs.Count -eq 1 -and (Test-Path (Join-Path $dirs[0].FullName $exeName))) { $src = $dirs[0].FullName }
-        else { throw "the package has no $exeName" }
-    }
-    robocopy $src $Dest /E /R:15 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
-    if ($LASTEXITCODE -ge 8) { throw "copying the files failed (robocopy $LASTEXITCODE)" }
-    Remove-Item $stage -Recurse -Force
-    Remove-Item $Zip -Force
-    Log 'installed'
-} catch {
-    Log ('failed: ' + $_)
-}
-if ($Restart -eq '1') { Start-Process -FilePath $Exe }
-)PS";
+constexpr const char* UNIFIED_UPDATE_REPO = "Potatolord1965/Unified-Slicer-Vibecoded";
+constexpr const char* AUTO_INSTALL_KEY    = "auto_install_updates";
+constexpr const char* INSTALL_LOG_NAME    = "apply_update.log";
+constexpr size_t      MAX_PACKAGE_SIZE    = size_t(2) * 1024 * 1024 * 1024 - 1;
+constexpr size_t      MAX_SMALL_ASSET     = 64 * 1024;
 
 std::string sha256_of_file(const fs::path& path)
 {
@@ -110,24 +79,92 @@ std::string sha256_of_file(const fs::path& path)
     return out;
 }
 
-// A .sha256 file holds the hex digest, optionally followed by the file name.
-std::string parse_sha256_file(const std::string& body)
-{
-    std::istringstream ss(body);
-    std::string        digest;
-    ss >> digest;
-    std::transform(digest.begin(), digest.end(), digest.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-    if (digest.size() != 64 || !std::all_of(digest.begin(), digest.end(), [](char c) { return std::isxdigit((unsigned char) c); }))
-        return {};
-    return digest;
-}
-
 boost::optional<Semver> parse_tag(std::string tag)
 {
     if (!tag.empty() && (tag.front() == 'v' || tag.front() == 'V'))
         tag.erase(0, 1);
     return Semver::parse(tag);
 }
+
+std::string network_error(const std::string& error, unsigned status) { return error.empty() ? "HTTP " + std::to_string(status) : error; }
+
+#ifdef _WIN32
+// A PowerShell single-quoted string literal. PowerShell also treats the typographic single quotes
+// as quotes, so they are doubled too.
+std::wstring ps_literal(const std::wstring& s)
+{
+    std::wstring out = L"'";
+    for (wchar_t c : s) {
+        if (c == L'\'' || c == 0x2018 || c == 0x2019 || c == 0x201A || c == 0x201B)
+            out += c;
+        out += c;
+    }
+    return out + L"'";
+}
+
+// powershell.exe -EncodedCommand takes base64 of the script in UTF-16LE.
+std::wstring encode_command(const std::wstring& script)
+{
+    std::string bytes;
+    bytes.reserve(script.size() * 2);
+    for (wchar_t c : script) {
+        bytes.push_back(char(c & 0xff));
+        bytes.push_back(char((c >> 8) & 0xff));
+    }
+    std::string b64(4 * ((bytes.size() + 2) / 3) + 1, '\0');
+    const int   len = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(&b64[0]), reinterpret_cast<const unsigned char*>(bytes.data()),
+                                      int(bytes.size()));
+    b64.resize(size_t(std::max(len, 0)));
+    return std::wstring(b64.begin(), b64.end());
+}
+
+// The install helper. It runs without administrator rights, so the app it restarts doesn't get them
+// either, and it is passed on the command line, so there is no script file to swap. It waits for the
+// app to exit, runs apply_update.ps1 from the install folder (through UAC when `elevate`), records the
+// outcome in the user's update log, deletes the installed package and restarts the app when asked.
+std::wstring install_helper(DWORD pid, const fs::path& script, const fs::path& zip, const std::string& digest, const fs::path& dest,
+                            const fs::path& exe, const fs::path& log, const std::string& zip_name, bool elevate, bool restart)
+{
+    std::wstring dest_arg = dest.wstring();
+    // A quoted argument may not end in a backslash ("C:\" would escape its closing quote).
+    if (!dest_arg.empty() && dest_arg.back() == L'\\')
+        dest_arg += L'.';
+    // Paths on Windows can't contain double quotes, so quoting each one is enough.
+    const std::wstring args = L"-NoProfile -ExecutionPolicy Bypass -File \"" + script.wstring() + L"\" -Zip \"" + zip.wstring() +
+                              L"\" -Hash " + std::wstring(digest.begin(), digest.end()) + L" -Dest \"" + dest_arg + L"\" -Exe \"" +
+                              exe.filename().wstring() + L"\"";
+    const std::wstring flag_elevate = elevate ? L"$true" : L"$false";
+    const std::wstring flag_restart = restart ? L"$true" : L"$false";
+    std::wstring s;
+    s += L"$ErrorActionPreference = 'Stop'\n";
+    s += L"$log = " + ps_literal(log.wstring()) + L"\n";
+    s += L"function Log($m) { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + ' ' + $m) }\n";
+    s += L"try { Wait-Process -Id " + std::to_wstring(pid) + L" -Timeout 120 -ErrorAction SilentlyContinue } catch {}\n";
+    s += L"$argList = " + ps_literal(args) + L"\n";
+    s += L"$inner = " + ps_literal((dest / INSTALL_LOG_NAME).wstring()) + L"\n";
+    s += L"try {\n";
+    s += L"    if (" + flag_elevate + L") { $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -Verb RunAs -WindowStyle Hidden -Wait -PassThru }\n";
+    s += L"    else { $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru }\n";
+    s += L"    if ($p.ExitCode -eq 0) {\n";
+    s += L"        Log 'installed'\n";
+    s += L"        Remove-Item -LiteralPath " + ps_literal(zip.wstring()) + L" -Force -ErrorAction SilentlyContinue\n";
+    s += L"    } else {\n";
+    s += L"        $detail = 'exit code ' + $p.ExitCode\n";
+    s += L"        if (Test-Path -LiteralPath $inner) {\n";
+    s += L"            $line = [string](Get-Content -LiteralPath $inner -Tail 1)\n";
+    s += L"            $i = $line.IndexOf(' failed: ')\n";
+    s += L"            if ($i -ge 0) { $detail = $line.Substring($i + 9) }\n";
+    s += L"        }\n";
+    s += L"        Log ('failed: ' + $detail)\n";
+    s += L"    }\n";
+    s += L"} catch {\n";
+    // Start-Process only throws for the elevated run when UAC was declined.
+    s += L"    if (" + flag_elevate + L") { Log " + ps_literal(L"declined " + fs::path(zip_name).wstring()) + L" } else { Log ('failed: ' + $_) }\n";
+    s += L"}\n";
+    s += L"if (" + flag_restart + L") { Start-Process -FilePath " + ps_literal(exe.wstring()) + L" }\n";
+    return s;
+}
+#endif
 
 } // namespace
 
@@ -161,6 +198,7 @@ std::string UnifiedUpdater::package_path() const
     return m_release.zip_name.empty() ? std::string() : (fs::path(updates_dir()) / m_release.zip_name).string();
 }
 
+// The install helper appends "installed", "failed: <reason>" or "declined <package>".
 void UnifiedUpdater::read_last_install_log()
 {
     try {
@@ -172,8 +210,12 @@ void UnifiedUpdater::read_last_install_log()
         while (std::getline(in, line))
             if (!line.empty())
                 last = line;
-        if (last.find(" failed: ") != std::string::npos)
-            m_last_install_error = last.substr(last.find(" failed: ") + 9);
+        const size_t failed   = last.find(" failed: ");
+        const size_t declined = last.find(" declined ");
+        if (failed != std::string::npos)
+            m_last_install_error = last.substr(failed + 9);
+        else if (declined != std::string::npos)
+            m_declined_package = last.substr(declined + 10);
     } catch (const std::exception&) {}
 }
 
@@ -181,13 +223,26 @@ UnifiedUpdater::State UnifiedUpdater::state() const { std::lock_guard<std::mutex
 UnifiedUpdater::Release UnifiedUpdater::release() const { std::lock_guard<std::mutex> lock(m_mutex); return m_release; }
 std::string UnifiedUpdater::error() const { std::lock_guard<std::mutex> lock(m_mutex); return m_error; }
 double UnifiedUpdater::progress() const { std::lock_guard<std::mutex> lock(m_mutex); return m_progress; }
-std::string UnifiedUpdater::last_install_error() const { std::lock_guard<std::mutex> lock(m_mutex); return m_last_install_error; }
+
+std::string UnifiedUpdater::last_install_error() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_declined_package.empty() && m_declined_package == m_release.zip_name)
+        return _u8L("Windows did not get administrator rights to install it. Use \"Restart and update\" to try again.");
+    return m_last_install_error;
+}
+
+bool UnifiedUpdater::install_declined() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return !m_declined_package.empty() && m_declined_package == m_release.zip_name;
+}
 
 bool UnifiedUpdater::can_install() const
 {
 #ifdef _WIN32
     std::lock_guard<std::mutex> lock(m_mutex);
-    return !m_release.zip_url.empty() && !m_release.sha256_url.empty();
+    return !m_release.zip_url.empty() && !m_release.sha256_url.empty() && !m_release.sig_url.empty();
 #else
     return false;
 #endif
@@ -247,6 +302,7 @@ void UnifiedUpdater::check()
     const std::string url = std::string("https://api.github.com/repos/") + UNIFIED_UPDATE_REPO + "/releases/latest";
     Http::get(url)
         .header("Accept", "application/vnd.github+json")
+        .tls_verify(true)
         .timeout_connect(10)
         .timeout_max(30)
         .on_error([this](std::string, std::string error, unsigned status) {
@@ -254,7 +310,7 @@ void UnifiedUpdater::check()
             if (status == 404)
                 set_state(State::UpToDate);
             else
-                set_state(State::Failed, _u8L("Could not reach GitHub:") + " " + (error.empty() ? "HTTP " + std::to_string(status) : error));
+                set_state(State::Failed, format(_u8L("Could not reach GitHub: %1%"), network_error(error, status)));
         })
         .on_complete([this](std::string body, unsigned) {
             try {
@@ -269,30 +325,55 @@ void UnifiedUpdater::check()
                 rel.version  = tag->to_string_sf();
                 rel.notes    = json.value("body", "");
                 rel.page_url = json.value("html_url", "");
-                for (const auto& asset : json.value("assets", nlohmann::json::array())) {
-                    const std::string name = asset.value("name", "");
-                    const std::string link = asset.value("browser_download_url", "");
-                    if (boost::istarts_with(name, "UnifiedSlicer-") && boost::iends_with(name, "-win64.zip")) {
-                        rel.zip_name = name;
-                        rel.zip_url  = link;
-                        rel.zip_size = asset.value("size", size_t(0));
-                    }
+                // Only the package named after the release's own version: its name is in the signed
+                // checksum file, so an older signed package can't be passed off as this release.
+                const std::string zip_name = "UnifiedSlicer-" + rel.version + "-win64.zip";
+                const auto        assets   = json.value("assets", nlohmann::json::array());
+                auto              find     = [&assets](const std::string& name, size_t* size = nullptr) {
+                    for (const auto& asset : assets)
+                        if (asset.is_object() && boost::iequals(asset.value("name", ""), name)) {
+                            if (size != nullptr)
+                                *size = asset.value("size", size_t(0));
+                            return asset.value("browser_download_url", "");
+                        }
+                    return std::string();
+                };
+                rel.zip_url = find(zip_name, &rel.zip_size);
+                if (!rel.zip_url.empty()) {
+                    rel.zip_name   = zip_name;
+                    rel.sha256_url = find(zip_name + ".sha256");
+                    rel.sig_url    = find(zip_name + ".sha256.sig");
                 }
-                for (const auto& asset : json.value("assets", nlohmann::json::array()))
-                    if (!rel.zip_name.empty() && asset.value("name", "") == rel.zip_name + ".sha256")
-                        rel.sha256_url = asset.value("browser_download_url", "");
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     m_release  = rel;
                     m_progress = 0.;
                 }
                 set_state(State::Available);
-                if (auto_install_enabled() && can_install())
-                    download();
+                // The settings are read on the GUI thread only.
+                if (wxTheApp != nullptr)
+                    wxTheApp->CallAfter([this]() {
+                        if (state() == State::Available && auto_install_enabled() && can_install())
+                            download();
+                    });
             } catch (const std::exception& e) {
-                set_state(State::Failed, _u8L("Unexpected answer from GitHub:") + " " + e.what());
+                set_state(State::Failed, format(_u8L("Unexpected answer from GitHub: %1%"), e.what()));
             }
         })
+        .perform();
+}
+
+void UnifiedUpdater::fetch_asset(const std::string& url, std::function<void(std::string)> then)
+{
+    Http::get(url)
+        .tls_verify(true)
+        .size_limit(MAX_SMALL_ASSET)
+        .timeout_connect(10)
+        .timeout_max(60)
+        .on_error([this](std::string, std::string error, unsigned status) {
+            set_state(State::Failed, format(_u8L("Could not download the update checksum: %1%"), network_error(error, status)));
+        })
+        .on_complete([then](std::string body, unsigned) { then(std::move(body)); })
         .perform();
 }
 
@@ -309,77 +390,77 @@ void UnifiedUpdater::download()
     }
     set_state(State::Downloading);
 
-    // The hash first: it decides whether a package left over from an earlier session can be used.
-    Http::get(rel.sha256_url)
-        .timeout_connect(10)
-        .timeout_max(60)
-        .on_error([this](std::string, std::string error, unsigned status) {
-            set_state(State::Failed, _u8L("Could not download the update checksum:") + " " + (error.empty() ? "HTTP " + std::to_string(status) : error));
-        })
-        .on_complete([this, rel](std::string body, unsigned) {
-            const std::string digest = parse_sha256_file(body);
-            if (digest.empty()) {
-                set_state(State::Failed, _u8L("The update checksum file is not valid."));
+    // The signed checksum first: it decides which package is trusted, and whether one left over from
+    // an earlier session can be used.
+    fetch_asset(rel.sha256_url, [this, rel](std::string checksum) {
+        fetch_asset(rel.sig_url, [this, rel, checksum](std::string signature) { download_verified(rel, checksum, signature); });
+    });
+}
+
+void UnifiedUpdater::download_verified(const Release& rel, const std::string& checksum, const std::string& signature)
+{
+    if (!UpdateSignature::verify(checksum, signature)) {
+        set_state(State::Failed, _u8L("The update is not signed with the Unified Slicer release key, so it was not downloaded."));
+        return;
+    }
+    std::string digest, file_name;
+    if (!UpdateSignature::parse_checksum(checksum, digest, file_name) || !boost::iequals(file_name, rel.zip_name)) {
+        set_state(State::Failed, _u8L("The update checksum file is not valid."));
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_sha256 = digest;
+    }
+    const fs::path target  = fs::path(updates_dir()) / rel.zip_name;
+    const fs::path partial = target.string() + ".part";
+    try {
+        fs::create_directories(target.parent_path());
+        if (fs::exists(target) && sha256_of_file(target) == digest) {
+            set_state(State::Ready);
+            return;
+        }
+    } catch (const std::exception& e) {
+        set_state(State::Failed, format(_u8L("Could not prepare the update folder: %1%"), e.what()));
+        return;
+    }
+
+    Http::get(rel.zip_url)
+        .tls_verify(true)
+        .size_limit(MAX_PACKAGE_SIZE)
+        .timeout_connect(15)
+        .body_to_file(partial)
+        .on_progress([this](Http::Progress p, bool&) {
+            if (p.dltotal == 0)
                 return;
-            }
+            const double now = double(p.dlnow) / double(p.dltotal);
+            bool         changed;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
-                m_sha256 = digest;
+                changed = now - m_progress >= 0.01 || now >= 1.;
+                if (changed)
+                    m_progress = now;
             }
-            const fs::path target = fs::path(updates_dir()) / rel.zip_name;
+            if (changed)
+                notify();
+        })
+        .on_error([this, partial](std::string, std::string error, unsigned status) {
+            boost::system::error_code ec;
+            fs::remove(partial, ec);
+            set_state(State::Failed, format(_u8L("Could not download the update: %1%"), network_error(error, status)));
+        })
+        .on_complete([this, target, partial, digest](std::string, unsigned) {
             try {
-                fs::create_directories(target.parent_path());
-                if (fs::exists(target) && sha256_of_file(target) == digest) {
-                    set_state(State::Ready);
+                if (sha256_of_file(partial) != digest) {
+                    fs::remove(partial);
+                    set_state(State::Failed, _u8L("The downloaded update does not match its signed checksum."));
                     return;
                 }
+                fs::rename(partial, target);
+                set_state(State::Ready);
             } catch (const std::exception& e) {
-                set_state(State::Failed, _u8L("Could not prepare the update folder:") + " " + e.what());
-                return;
+                set_state(State::Failed, format(_u8L("Could not save the update: %1%"), e.what()));
             }
-
-            Http::get(rel.zip_url)
-                .size_limit(MAX_PACKAGE_SIZE)
-                .timeout_connect(15)
-                .on_progress([this](Http::Progress p, bool&) {
-                    if (p.dltotal == 0)
-                        return;
-                    const double now = double(p.dlnow) / double(p.dltotal);
-                    bool         changed;
-                    {
-                        std::lock_guard<std::mutex> lock(m_mutex);
-                        changed    = now - m_progress >= 0.01 || now >= 1.;
-                        if (changed)
-                            m_progress = now;
-                    }
-                    if (changed)
-                        notify();
-                })
-                .on_error([this](std::string, std::string error, unsigned status) {
-                    set_state(State::Failed, _u8L("Could not download the update:") + " " + (error.empty() ? "HTTP " + std::to_string(status) : error));
-                })
-                .on_complete([this, target, digest](std::string body, unsigned) {
-                    try {
-                        const fs::path partial = target.string() + ".part";
-                        {
-                            boost::nowide::ofstream out(partial.string(), std::ios::binary | std::ios::trunc);
-                            out.write(body.data(), std::streamsize(body.size()));
-                            if (!out)
-                                throw std::runtime_error("could not write " + partial.string());
-                        }
-                        body.clear();
-                        if (sha256_of_file(partial) != digest) {
-                            fs::remove(partial);
-                            set_state(State::Failed, _u8L("The downloaded update does not match its checksum."));
-                            return;
-                        }
-                        fs::rename(partial, target);
-                        set_state(State::Ready);
-                    } catch (const std::exception& e) {
-                        set_state(State::Failed, _u8L("Could not save the update:") + " " + e.what());
-                    }
-                })
-                .perform();
         })
         .perform();
 }
@@ -393,36 +474,44 @@ void UnifiedUpdater::restart_and_install()
         m_restart_after_install = true;
     }
     // Closing goes through the usual "save project?" questions; if the user cancels, the package
-    // is still installed when the app is closed later, only without the restart.
-    if (MainFrame* frame = wxGetApp().mainframe)
-        frame->Close();
+    // is still installed when the app is closed later, only without the restart. Deferred so that a
+    // modal dialog that asked for this has finished closing first.
+    wxGetApp().CallAfter([]() {
+        if (MainFrame* frame = wxGetApp().mainframe)
+            frame->Close();
+    });
 }
 
 void UnifiedUpdater::install_pending()
 {
 #ifdef _WIN32
     bool        restart;
-    std::string digest;
+    std::string digest, zip_name;
+    bool        declined;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_state != State::Ready)
             return;
-        restart = m_restart_after_install;
-        digest  = m_sha256;
+        restart  = m_restart_after_install;
+        digest   = m_sha256;
+        zip_name = m_release.zip_name;
+        declined = !m_declined_package.empty() && m_declined_package == zip_name;
     }
-    if (!restart && !auto_install_enabled())
+    // Refused administrator rights once: only "Restart and update" asks again, not every exit.
+    if (!restart && (!auto_install_enabled() || declined))
         return;
     try {
         const fs::path zip = package_path();
         // Checked again: the file sat in the user's data folder since it was downloaded.
-        if (zip.empty() || sha256_of_file(zip) != digest) {
+        // apply_update.ps1 checks its own copy once more before installing it.
+        if (zip.empty() || digest.empty() || sha256_of_file(zip) != digest) {
             BOOST_LOG_TRIVIAL(error) << "Updater: package missing or changed, not installing";
             return;
         }
-        const fs::path script = zip.parent_path() / INSTALL_SCRIPT_NAME;
-        {
-            boost::nowide::ofstream out(script.string(), std::ios::trunc);
-            out << INSTALL_SCRIPT;
+        const fs::path script = fs::path(resources_dir()) / "updater" / "apply_update.ps1";
+        if (!fs::exists(script)) {
+            BOOST_LOG_TRIVIAL(error) << "Updater: " << script.string() << " is missing, not installing";
+            return;
         }
         const fs::path exe  = fs::path(into_u8(wxStandardPaths::Get().GetExecutablePath()));
         const fs::path dest = exe.parent_path();
@@ -438,21 +527,19 @@ void UnifiedUpdater::install_pending()
             fs::remove(probe);
         } catch (const std::exception&) {}
 
-        auto quote = [](const std::wstring& s) { return L"\"" + s + L"\""; };
-        const std::wstring args = L"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " + quote(script.wstring()) +
-                                  L" -WaitPid " + std::to_wstring(GetCurrentProcessId()) + L" -Zip " + quote(zip.wstring()) +
-                                  L" -Dest " + quote(dest.wstring()) + L" -Exe " + quote(exe.wstring()) + L" -Restart " +
-                                  (restart ? L"1" : L"0");
+        const std::wstring helper = install_helper(GetCurrentProcessId(), script, zip, digest, dest, exe,
+                                                   fs::path(updates_dir()) / INSTALL_LOG_NAME, zip_name, !writable, restart);
+        const std::wstring args   = L"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + encode_command(helper);
 
         SHELLEXECUTEINFOW info{};
         info.cbSize       = sizeof(info);
         info.fMask        = SEE_MASK_NOASYNC;
-        info.lpVerb       = writable ? L"open" : L"runas";
+        info.lpVerb       = L"open";
         info.lpFile       = L"powershell.exe";
         info.lpParameters = args.c_str();
         info.nShow        = SW_HIDE;
         if (!ShellExecuteExW(&info))
-            BOOST_LOG_TRIVIAL(error) << "Updater: could not start the install script, error " << GetLastError();
+            BOOST_LOG_TRIVIAL(error) << "Updater: could not start the install helper, error " << GetLastError();
         else
             BOOST_LOG_TRIVIAL(info) << "Updater: installing " << zip.string() << " into " << dest.string();
     } catch (const std::exception& e) {

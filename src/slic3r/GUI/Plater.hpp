@@ -396,6 +396,10 @@ public:
     void download_project(const wxString& project_id);
     void request_model_download(wxString url);
     void request_download_project(std::string project_id);
+    // Unified Slicer: runs `load`, which opens a file downloaded from the internet. Post-processing
+    // scripts run programs on this computer whenever G-code is exported, so scripts the file brings
+    // in are kept only when the user agrees.
+    void load_downloaded(const std::function<void()>& load);
     // BBS: check snapshot
     bool up_to_date(bool saved, bool backup);
 

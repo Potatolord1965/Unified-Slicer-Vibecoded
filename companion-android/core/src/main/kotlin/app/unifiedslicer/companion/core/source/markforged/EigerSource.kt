@@ -73,10 +73,11 @@ class EigerSource(override val account: MarkforgedAccount, private val ctx: Sour
             "printing" -> if (printingState?.lowercase() in setOf("heating", "scanning", "calibrating")) PrinterState.PREPARING else PrinterState.PRINTING
             "print paused" -> PrinterState.PAUSED
             "print finished" -> PrinterState.FINISHED
-            "material jam", "fiber jam", "out of material", "user action required" -> PrinterState.FAILED
-            "offline", "disconnected" -> PrinterState.OFFLINE
-            "" -> PrinterState.UNKNOWN
-            else -> PrinterState.IDLE
+            // The print is held until someone clears the jam or loads material.
+            "material jam", "fiber jam", "out of material", "user action required" -> PrinterState.PAUSED
+            "ready", "idle" -> PrinterState.IDLE
+            "offline", "disconnected", "disabled" -> PrinterState.OFFLINE
+            else -> PrinterState.UNKNOWN
         }
     }
 }
