@@ -5,6 +5,8 @@ import app.unifiedslicer.companion.core.PrinterHub
 import app.unifiedslicer.companion.core.source.SourceContext
 import app.unifiedslicer.companion.core.model.PrinterStatus
 import app.unifiedslicer.companion.core.camera.CameraFeed
+import app.unifiedslicer.companion.core.model.PastPrint
+import app.unifiedslicer.companion.core.model.PrinterFile
 import app.unifiedslicer.companion.core.source.PrintJob
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import kotlinx.coroutines.delay
@@ -20,10 +22,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 
-/** Live printer status for the UI. The activity drives [refresh] on a timer while it is visible. */
-class PrinterRepository(val http: OkHttpClient, private val store: AccountStore, private val notifier: TransitionNotifier) {
+/**
+ * Live printer status for the UI. The activity drives [refresh] on a timer while it is visible, and
+ * the background check uses [checkInBackground], so each account only ever has one client.
+ */
+class PrinterRepository(
+    val http: OkHttpClient,
+    private val store: AccountStore,
+    private val notifier: TransitionNotifier,
+    /** True while a screen is open: connections are only kept open then. */
+    private val inForeground: () -> Boolean,
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val hub = PrinterHub(SourceContext(http, { store.update(it) }, AgoraRtm))
     private val running = Mutex()
@@ -38,7 +50,9 @@ class PrinterRepository(val http: OkHttpClient, private val store: AccountStore,
         scope.launch {
             store.accounts.collect {
                 hub.setAccounts(it)
-                refresh()
+                // Started by the background check, the app has no screen to connect for; the
+                // activity refreshes as soon as one opens.
+                if (inForeground()) refresh()
             }
         }
     }
@@ -55,6 +69,21 @@ class PrinterRepository(val http: OkHttpClient, private val store: AccountStore,
             _refreshing.value = false
             running.unlock()
         }
+    }
+
+    /**
+     * One check while the app is closed. Uses the live view's hub rather than a second one: two
+     * clients renewing one Elegoo session at once would sign it out. The connections are dropped
+     * again afterwards, unless a screen opened meanwhile.
+     */
+    suspend fun checkInBackground(timeoutMs: Long) {
+        hub.setAccounts(store.accounts.value)
+        running.withLock {
+            val snap = hub.refresh(timeoutMs)
+            _snapshot.value = snap
+            notifier.process(snap)
+        }
+        if (!inForeground()) hub.disconnect()
     }
 
     private val _pendingFile = MutableStateFlow<PrintJob?>(null)
@@ -109,6 +138,23 @@ class PrinterRepository(val http: OkHttpClient, private val store: AccountStore,
 
     /** The camera of [printer], or null when the app cannot show one for it. Throws when it is switched off. */
     suspend fun camera(printer: PrinterStatus): CameraFeed? = hub.camera(printer.accountId, printer.deviceId)
+
+    suspend fun files(printer: PrinterStatus): List<PrinterFile> = withContext(Dispatchers.Default) { hub.files(printer.accountId, printer.deviceId) }
+
+    /** Starts [file] on [printer]; returns why it failed, or null. */
+    suspend fun printFile(printer: PrinterStatus, file: PrinterFile): String? = withContext(Dispatchers.Default) {
+        try {
+            hub.printFile(printer.accountId, printer.deviceId, file)
+            scope.launch { delay(1500); refresh() }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: e.javaClass.simpleName
+        }
+    }
+
+    suspend fun history(printer: PrinterStatus): List<PastPrint> = withContext(Dispatchers.Default) { hub.history(printer.accountId, printer.deviceId) }
 
     fun refreshAsync() { scope.launch { refresh() } }
 

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <memory>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -15,6 +17,7 @@
 #include <wx/dataview.h>
 #include <wx/dcclient.h>
 #include <wx/image.h>
+#include <wx/menu.h>
 #include <wx/scrolwin.h>
 #include <wx/simplebook.h>
 #include <wx/sizer.h>
@@ -27,6 +30,7 @@
 #include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/I18N.hpp"
+#include "slic3r/GUI/MsgDialog.hpp"
 #include "slic3r/GUI/format.hpp"
 #include "slic3r/GUI/wxExtensions.hpp"
 #include "slic3r/GUI/Widgets/Button.hpp"
@@ -276,8 +280,10 @@ CloudProviderPage::CloudProviderPage(wxWindow* parent, CloudPrinterProviderPtr p
     m_login_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         if (!m_provider)
             return;
-        if (m_provider->has_account() && m_provider->is_logged_in())
-            m_provider->logout();
+        if (m_provider->supports_multiple_accounts() && m_provider->is_logged_in())
+            show_accounts_menu();
+        else if (m_provider->has_account() && m_provider->is_logged_in())
+            m_provider->sign_out();
         else
             m_provider->login(this);
         refresh();
@@ -309,6 +315,9 @@ CloudProviderPage::CloudProviderPage(wxWindow* parent, CloudPrinterProviderPtr p
     m_list->AppendTextColumn(_L("Model"), wxDATAVIEW_CELL_INERT, FromDIP(180));
     if (!m_provider)
         m_list->AppendTextColumn(_L("Service"), wxDATAVIEW_CELL_INERT, FromDIP(120));
+    m_account_column = !m_provider || m_provider->supports_multiple_accounts();
+    if (m_account_column)
+        m_list->AppendTextColumn(_L("Account"), wxDATAVIEW_CELL_INERT, FromDIP(140));
     m_list->AppendTextColumn(_L("Status"), wxDATAVIEW_CELL_INERT, FromDIP(140));
     m_list->AppendTextColumn(_L("Progress"), wxDATAVIEW_CELL_INERT, FromDIP(80));
     m_list->Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, &CloudProviderPage::on_activated, this);
@@ -362,17 +371,18 @@ bool CloudProviderPage::Show(bool show)
 void CloudProviderPage::refresh()
 {
     update_header();
-    wxWeakRef<CloudProviderPage> self(this);
+    const std::weak_ptr<bool> alive = m_alive;
+    CloudProviderPage* const  page  = this;
     for (const CloudPrinterProviderPtr& p : providers()) {
         if (!p->is_available()) {
             m_printers.erase(p->id());
             continue;
         }
         const std::string provider_id = p->id();
-        p->refresh_printers([self, provider_id](std::vector<CloudPrinter> printers, wxString error) {
-            wxGetApp().CallAfter([self, provider_id, printers = std::move(printers), error]() mutable {
-                if (self)
-                    self->on_printers(provider_id, std::move(printers), error);
+        p->refresh_printers([alive, page, provider_id](std::vector<CloudPrinter> printers, wxString error) {
+            wxGetApp().CallAfter([alive, page, provider_id, printers = std::move(printers), error]() mutable {
+                if (!alive.expired()) // the page is destroyed on this thread, so it can't go in between
+                    page->on_printers(provider_id, std::move(printers), error);
             });
         });
     }
@@ -404,10 +414,20 @@ void CloudProviderPage::update_header()
         m_login_btn->SetLabel(_L("Add printer"));
         style_primary(m_login_btn, ButtonType::Window, m_accent);
     } else if (m_provider->is_logged_in()) {
-        const wxString name = m_provider->account_name();
-        // TRN %1% is the account name of a printer cloud service.
+        wxString name = m_provider->account_name();
+        if (m_provider->supports_multiple_accounts()) {
+            // Every signed-in account, the active one (used for sending) first.
+            std::vector<CloudAccountInfo> accounts = m_provider->accounts();
+            std::stable_partition(accounts.begin(), accounts.end(), [](const CloudAccountInfo& a) { return a.active; });
+            if (accounts.size() > 1) {
+                name.clear();
+                for (const CloudAccountInfo& a : accounts)
+                    name += (name.empty() ? "" : ", ") + a.label;
+            }
+        }
+        // TRN %1% is the account name of a printer cloud service, or several separated by commas.
         m_account->SetLabel(name.empty() ? _L("Signed in") : format_wxstr(_L("Signed in as %1%"), name));
-        m_login_btn->SetLabel(_L("Log out"));
+        m_login_btn->SetLabel(m_provider->supports_multiple_accounts() ? _L("Accounts") : _L("Log out"));
         m_login_btn->SetStyle(ButtonStyle::Regular, ButtonType::Window);
     } else {
         m_account->SetLabel(_L("Not signed in"));
@@ -447,6 +467,8 @@ void CloudProviderPage::rebuild_list()
             row.push_back(wxVariant(p.model));
             if (!m_provider)
                 row.push_back(wxVariant(provider->display_name()));
+            if (m_account_column)
+                row.push_back(wxVariant(p.account_label));
             row.push_back(wxVariant(p.status));
             row.push_back(wxVariant(progress_text(p)));
             m_list->AppendItem(row);
@@ -479,14 +501,21 @@ void CloudProviderPage::rebuild_cards()
 {
     std::vector<CloudPrinter> shown;
     for (const CloudPrinterProviderPtr& provider : providers())
-        if (auto it = m_printers.find(provider->id()); it != m_printers.end())
+        if (auto it = m_printers.find(provider->id()); it != m_printers.end()) {
+            // The account shows on the card only when the service lists printers of several.
+            std::set<std::string> keys;
+            for (const CloudPrinter& p : it->second)
+                keys.insert(p.account_key);
             for (CloudPrinter p : it->second) {
                 p.provider_id = provider->id();
+                if (keys.size() < 2)
+                    p.account_label.clear();
                 shown.push_back(std::move(p));
             }
+        }
     const auto same = [](const CloudPrinter& a, const CloudPrinter& b) {
-        return std::tie(a.provider_id, a.id, a.name, a.model, a.status, a.online, a.progress, a.image) ==
-               std::tie(b.provider_id, b.id, b.name, b.model, b.status, b.online, b.progress, b.image);
+        return std::tie(a.provider_id, a.id, a.name, a.model, a.status, a.online, a.progress, a.image, a.account_label) ==
+               std::tie(b.provider_id, b.id, b.name, b.model, b.status, b.online, b.progress, b.image, b.account_label);
     };
     // Rebuilt only on change: the page refreshes every few seconds.
     if (m_cards->GetSizer()->GetItemCount() == shown.size() && std::equal(shown.begin(), shown.end(), m_carded.begin(), m_carded.end(), same))
@@ -505,7 +534,10 @@ void CloudProviderPage::rebuild_cards()
         const std::string id   = p.id;
         wxWeakRef<CloudProviderPage> self(this);
         // Opened after the click is handled: opening may rebuild the cards.
-        auto* card = new PrinterCard(m_cards, p, m_provider ? wxString() : vendor, vendor, accent, [self, pid, id]() {
+        wxString service = m_provider ? wxString() : vendor;
+        if (!p.account_label.empty())
+            service = service.empty() ? p.account_label : service + wxString(L" \u00B7 ") + p.account_label;
+        auto* card = new PrinterCard(m_cards, p, service, vendor, accent, [self, pid, id]() {
             wxGetApp().CallAfter([self, pid, id]() {
                 if (self)
                     self->open_printer(pid, id);
@@ -539,6 +571,15 @@ void CloudProviderPage::open_printer(const std::string& provider_id, const std::
     DeviceHubPanel* hub = nullptr;
     for (wxWindow* w = GetParent(); w != nullptr && hub == nullptr; w = w->GetParent())
         hub = dynamic_cast<DeviceHubPanel*>(w);
+    // A printer of a saved account other than the active one: that account becomes active first,
+    // since the service's own pages and sending work with the active account.
+    if (auto it = m_printers.find(provider_id); it != m_printers.end())
+        for (const CloudPrinter& p : it->second)
+            if (p.id == printer_id) {
+                if (!provider->use_account_of(this, p))
+                    return;
+                break;
+            }
     if (hub != nullptr)
         hub->set_opening_provider(provider_id);
     provider->open_printer(this, printer_id);
@@ -550,6 +591,40 @@ void CloudProviderPage::open_printer(const std::string& provider_id, const std::
                 weak->set_opening_provider({});
         });
     }
+}
+
+void CloudProviderPage::show_accounts_menu()
+{
+    // Every account: pick one to make it active, add another, or sign out of one.
+    std::function<void()> action;
+    wxMenu                menu;
+    for (const CloudAccountInfo& a : m_provider->accounts()) {
+        wxMenuItem* item = menu.AppendCheckItem(wxID_ANY, a.label);
+        item->Check(a.active);
+        const std::string key = a.key;
+        menu.Bind(wxEVT_MENU, [this, key, &action](wxCommandEvent&) {
+            action = [this, key] {
+                if (!m_provider->switch_account(key))
+                    MessageDialog(this, _L("This account's sign-in no longer works. Sign out of it and sign in again."),
+                                  m_provider->display_name(), wxOK | wxICON_WARNING)
+                        .ShowModal();
+            };
+        }, item->GetId());
+    }
+    menu.AppendSeparator();
+    wxMenuItem* add = menu.Append(wxID_ANY, _L("Add account…"));
+    menu.Bind(wxEVT_MENU, [this, &action](wxCommandEvent&) { action = [this] { m_provider->add_account(this); }; }, add->GetId());
+    menu.AppendSeparator();
+    for (const CloudAccountInfo& a : m_provider->accounts()) {
+        // TRN %1% is an account name.
+        wxMenuItem*       item = menu.Append(wxID_ANY, format_wxstr(_L("Sign out of %1%"), a.label));
+        const std::string key  = a.key;
+        menu.Bind(wxEVT_MENU, [this, key, &action](wxCommandEvent&) { action = [this, key] { m_provider->sign_out(key); }; }, item->GetId());
+    }
+    PopupMenu(&menu, m_login_btn->GetPosition() + wxPoint(0, m_login_btn->GetSize().y));
+    // After the menu closed: the actions open dialogs.
+    if (action)
+        action();
 }
 
 void CloudProviderPage::on_activated(wxDataViewEvent& evt)

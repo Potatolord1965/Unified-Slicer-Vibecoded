@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.bambu
 
+import app.unifiedslicer.companion.core.model.FilamentSlot
+import app.unifiedslicer.companion.core.net.obj
 import app.unifiedslicer.companion.core.net.arr
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.PrinterState
@@ -34,6 +36,49 @@ object BambuReport {
         25 to "Calibrating motor noise", 29 to "Cooling chamber", 35 to "Paused: nozzle clog",
     )
 
+    /**
+     * AMS units ("ams" → "ams"[] → "tray"[]) and the external spool ("vt_tray"). "tray_now" is the
+     * loaded tray: unit * 4 + slot, 254 the external spool, 255 none. AMS HT units have ids from 128.
+     */
+    fun filament(print: JsonObject): List<FilamentSlot> {
+        val ams = print.obj("ams")
+        val now = ams.str("tray_now")?.toIntOrNull()
+        val slots = mutableListOf<FilamentSlot>()
+        ams.arr("ams").orEmpty().forEach { unit ->
+            val id = unit.str("id")?.toIntOrNull() ?: return@forEach
+            val ht = id >= 128
+            val letter = if (ht) "HT${id - 127}" else ('A' + id).toString()
+            unit.arr("tray").orEmpty().forEach { tray ->
+                val slot = tray.str("id")?.toIntOrNull() ?: return@forEach
+                val type = tray.str("tray_type").orEmpty()
+                slots += FilamentSlot(
+                    label = if (ht) letter else "$letter${slot + 1}",
+                    type = type.ifEmpty { "Empty" },
+                    color = bambuColor(tray.str("tray_color")),
+                    remainPercent = tray.int("remain")?.takeIf { it in 0..100 },
+                    active = !ht && now == id * 4 + slot || ht && now == id,
+                    empty = type.isEmpty(),
+                )
+            }
+        }
+        print.obj("vt_tray")?.let { vt ->
+            val type = vt.str("tray_type").orEmpty()
+            if (type.isNotEmpty() || slots.isEmpty()) slots += FilamentSlot(
+                label = "Ext", type = type.ifEmpty { "Empty" }, color = bambuColor(vt.str("tray_color")),
+                active = now == 254, empty = type.isEmpty(),
+            )
+        }
+        return slots
+    }
+
+    /** "RRGGBBAA" → "#RRGGBB"; null for missing or fully transparent. */
+    fun bambuColor(raw: String?): String? {
+        val hex = raw?.trim()?.removePrefix("#") ?: return null
+        if (hex.length < 6 || hex.take(6).any { it.digitToIntOrNull(16) == null }) return null
+        if (hex.length == 8 && hex.endsWith("00")) return null
+        return "#" + hex.take(6).uppercase()
+    }
+
     fun toStatus(
         accountId: String,
         deviceId: String,
@@ -67,6 +112,7 @@ object BambuReport {
             chamber = print.num("chamber_temper")?.takeIf { it > 0 }?.let { Temperature(it) },
             light = print.arr("lights_report")?.firstOrNull { it.str("node") == "chamber_light" }?.str("mode")?.let { it != "off" },
             speedLevel = print.int("spd_lvl")?.takeIf { state.active },
+            filament = filament(print),
             alert = if (err != 0L) "Error %08X".format(err) else null,
             updatedAt = updatedAt,
         )

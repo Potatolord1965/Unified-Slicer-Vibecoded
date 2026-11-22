@@ -44,7 +44,23 @@ jobs:
           flatpak build --die-with-parent --share=network \
             --bind-mount=/run/build="$PWD/.flatpak-builder/build" \
             flatpak_app \
-            bash -c 'cd /run/build/OrcaSlicer && scripts/run_unit_tests.sh build_flatpak/tests'
+            bash -c 'cd /run/build/OrcaSlicer && scripts/run_unit_tests.sh build_flatpak/tests' && exit 0
+          # A bounds-check abort names no caller, so print a backtrace for each
+          # failed test (the SDK ships gdb) before failing the step.
+          flatpak build --die-with-parent \
+            --bind-mount=/run/build="$PWD/.flatpak-builder/build" \
+            flatpak_app \
+            bash -c 'cd /run/build/OrcaSlicer &&
+              ctest --test-dir build_flatpak/tests --rerun-failed --show-only=json-v1 |
+              python3 -c "import json, shlex, sys
+          for t in json.load(sys.stdin)[\"tests\"]:
+              print(shlex.join(t[\"command\"]))" |
+              while read -r cmd; do
+                echo "::group::backtrace: $cmd"
+                eval "gdb -q -batch -ex run -ex bt --args $cmd" 2>&1 | tail -60
+                echo "::endgroup::"
+              done' || true
+          exit 1
       - name: Collect test results
         if: always()
         shell: bash
@@ -61,7 +77,7 @@ jobs:
           if-no-files-found: warn
       - name: Delete Test Asset
         if: success()
-        uses: geekyeggo/delete-artifact@v6
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6
         with:
           name: ${{ inputs.artifact }}
           failOnError: false

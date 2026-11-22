@@ -53,6 +53,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import app.unifiedslicer.companion.core.source.controlsFor
+import app.unifiedslicer.companion.core.source.canBrowseFiles
+import app.unifiedslicer.companion.core.source.hasHistory
 import app.unifiedslicer.companion.core.camera.hasCamera
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.ui.theme.color
@@ -142,7 +144,7 @@ fun CompanionNav(
     )
     LaunchedEffect(openSignIn) {
         if (openSignIn != null) {
-            nav.navigate("signin?code=" + Uri.encode(openSignIn)) { launchSingleTop = true }
+            nav.navigate("signin?code=" + Uri.encode(openSignIn) + "&ask=true") { launchSingleTop = true }
             onSignInOpened()
         }
     }
@@ -201,8 +203,38 @@ fun CompanionNav(
                 controls = account?.let(::controlsFor).orEmpty(),
                 onCommand = { command -> printer?.let { app.printers.control(it, command) } },
                 camera = cameraPanel,
+                onFiles = if (printer != null && account != null && canBrowseFiles(account)) {
+                    { nav.navigate("files/" + Uri.encode(printer.key)) }
+                } else null,
+                onHistory = if (printer != null && account != null && hasHistory(account)) {
+                    { nav.navigate("history/" + Uri.encode(printer.key)) }
+                } else null,
                 onBack = { nav.popBackStack() },
             )
+        }
+        composable("files/{key}") { entry ->
+            val key = entry.arguments?.getString("key")?.let { Uri.decode(it) }
+            val printer = snapshot?.printers?.firstOrNull { it.key == key }
+            if (printer == null) {
+                LaunchedEffect(Unit) { nav.popBackStack() }
+            } else {
+                PrinterFilesScreen(
+                    printer.name,
+                    notReady = notReadyReason(printer.state),
+                    load = { app.printers.files(printer) },
+                    onPrint = { app.printers.printFile(printer, it) },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        composable("history/{key}") { entry ->
+            val key = entry.arguments?.getString("key")?.let { Uri.decode(it) }
+            val printer = snapshot?.printers?.firstOrNull { it.key == key }
+            if (printer == null) {
+                LaunchedEffect(Unit) { nav.popBackStack() }
+            } else {
+                PrintHistoryScreen(printer.name, load = { app.printers.history(printer) }, onBack = { nav.popBackStack() })
+            }
         }
         composable("site/{site}") { entry ->
             val site = runCatching { ModelSite.valueOf(entry.arguments?.getString("site").orEmpty()) }.getOrDefault(ModelSite.MAKERWORLD)
@@ -224,9 +256,16 @@ fun CompanionNav(
             )
         }
         composable("add") { AddScreen(onBack = { nav.popBackStack() }, onPick = { nav.navigate("add/$it") }, onScan = { scan() }) }
-        composable("signin?code={code}", arguments = listOf(navArgument("code") { type = NavType.StringType; defaultValue = "" })) { e ->
+        composable(
+            "signin?code={code}&ask={ask}",
+            arguments = listOf(
+                navArgument("code") { type = NavType.StringType; defaultValue = "" },
+                navArgument("ask") { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) { e ->
             ComputerSignInScreen(
                 codeText = e.arguments?.getString("code").orEmpty(),
+                askFirst = e.arguments?.getBoolean("ask") ?: true,
                 http = app.http,
                 saved = accounts,
                 onBack = { nav.popBackStack() },

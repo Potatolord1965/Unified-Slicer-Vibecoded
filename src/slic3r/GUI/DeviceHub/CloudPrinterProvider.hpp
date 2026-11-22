@@ -12,6 +12,9 @@
 class wxWindow;
 
 namespace Slic3r {
+namespace GUI {
+class CloudAccountSet;
+}
 
 class DynamicPrintConfig;
 
@@ -28,6 +31,17 @@ struct CloudPrinter
     bool        online{false};
     int         progress{-1}; // 0..100 while a job runs, -1 otherwise
     std::string image;        // picture for the card view: bitmap name in resources/images; empty for a generic one
+    // The account it belongs to, for a service signed in to several (CloudAccountSet key); empty otherwise.
+    std::string account_key;
+    wxString    account_label;
+};
+
+// One account of a service signed in to several, for the Accounts tab and the Device tab's menu.
+struct CloudAccountInfo
+{
+    std::string key;
+    wxString    label;
+    bool        active{false}; // the one sending, the Printer page and the service's model site use
 };
 
 // What the Plater hands a provider when the user prints to one of its printers.
@@ -77,6 +91,22 @@ public:
     virtual void     login(wxWindow* parent) = 0;
     virtual void     logout() = 0;
 
+    // Several accounts at once. A provider that supports it creates m_account_set; login() and
+    // logout() then act on the active account, and the user interface goes through these instead.
+    bool                          supports_multiple_accounts() const { return m_account_set != nullptr; }
+    // Every saved account; empty while signed out or for a provider with a single account.
+    std::vector<CloudAccountInfo> accounts();
+    // Signs in to one more account; the others stay signed in.
+    void                          add_account(wxWindow* parent);
+    // Makes a saved account the active one. False when its sign-in no longer works.
+    bool                          switch_account(const std::string& key);
+    // Signs out of one account, or of the active one when `key` is empty. Another saved account then
+    // becomes active.
+    void                          sign_out(const std::string& key = {});
+    // Makes the account a printer belongs to active before printing to it or opening it; false when
+    // that fails (the user is told).
+    bool                          use_account_of(wxWindow* parent, const CloudPrinter& printer);
+
     // The printers bound to the account (and any found on the LAN).
     virtual void refresh_printers(PrintersCallback done) = 0;
 
@@ -92,6 +122,9 @@ public:
     virtual bool handles_printer_preset(const DynamicPrintConfig& /*printer_config*/) const { return false; }
     virtual bool can_print() const { return false; }
     virtual void show_print_dialog(wxWindow* /*parent*/, const CloudPrintRequest& /*request*/) {}
+
+protected:
+    std::shared_ptr<CloudAccountSet> m_account_set;
 };
 
 using CloudPrinterProviderPtr = std::shared_ptr<CloudPrinterProvider>;

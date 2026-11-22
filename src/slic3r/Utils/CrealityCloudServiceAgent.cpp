@@ -5,13 +5,17 @@
 #include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/MsgDialog.hpp"
+#include "slic3r/GUI/Widgets/ProgressDialog.hpp"
 
+#include <chrono>
+#include <future>
 #include <utility>
 #include <vector>
 
 #include <boost/filesystem/path.hpp>
 #include <boost/log/trivial.hpp>
 #include <nlohmann/json.hpp>
+#include <wx/progdlg.h>
 #include <wx/string.h>
 
 namespace Slic3r {
@@ -44,22 +48,34 @@ int CrealityCloudServiceAgent::change_user(std::string user_info)
         return it != data.end() && it->is_string() ? it->get<std::string>() : std::string();
     };
 
-    const CC::Region region = CC::region_from_string(text("region"));
-    CC::Session      session;
-    std::string      error;
-    int              code = CC::CODE_PARSE;
+    const CC::Region  region       = CC::region_from_string(text("region"));
+    const auto        type_it      = data.find("account_type");
+    const int         account_type = type_it != data.end() && type_it->is_number_integer() ? type_it->get<int>() : 2;
+    const std::string account = text("account"), password = text("password"), token = text("token"), user_id = text("userId");
+    CC::Session       session;
+    std::string       error;
 
-    if (!text("password").empty()) {
-        const int account_type = data.value("account_type", 2);
-        code = CC::Client::login(region, account_type, text("account"), text("password"), session, error);
-    } else if (!text("token").empty() && !text("userId").empty()) {
-        // A session handed over directly, e.g. by a future OAuth page.
-        session.region  = region;
-        session.token   = text("token");
-        session.user_id = text("userId");
-        CC::Client(session).fetch_user_info(session);
-        code = CC::CODE_OK;
+    // change_user runs on the GUI thread and the request can take half a minute, so it runs on a
+    // worker while an app-modal progress window keeps the app drawing.
+    std::future<int> request = std::async(std::launch::async, [&]() {
+        if (!password.empty())
+            return CC::Client::login(region, account_type, account, password, session, error);
+        if (!token.empty() && !user_id.empty()) {
+            // A session handed over directly, e.g. by a future OAuth page.
+            session.region  = region;
+            session.token   = token;
+            session.user_id = user_id;
+            CC::Client(session).fetch_user_info(session);
+            return int(CC::CODE_OK);
+        }
+        return int(CC::CODE_PARSE);
+    });
+    {
+        GUI::ProgressDialog progress(_L("Creality Cloud"), _L("Signing in…"), 100, nullptr, wxPD_APP_MODAL | wxPD_AUTO_HIDE);
+        while (request.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready)
+            progress.Pulse();
     }
+    const int code = request.get();
 
     if (code != CC::CODE_OK || !session.valid()) {
         BOOST_LOG_TRIVIAL(warning) << "CrealityCloud: sign-in failed (" << code << "): " << error;

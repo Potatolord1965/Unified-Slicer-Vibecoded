@@ -14,11 +14,15 @@ class IPrinterAgent;
 
 namespace GUI {
 
+class OtherAccountPrinters;
+
 // Bambu Lab: the account of Bambu's network plug-in, and the machines the DeviceManager knows.
 // Its printers are controlled on the Device tab's native Printer page.
 class BambuCloudProvider : public CloudPrinterProvider
 {
 public:
+    BambuCloudProvider();
+
     std::string id() const override;
     wxString    display_name() const override;
     int         order() const override { return 10; }
@@ -37,6 +41,9 @@ public:
     void open_printer(wxWindow* parent, const std::string& printer_id) override;
 
     bool handles_printer_preset(const DynamicPrintConfig& printer_config) const override;
+
+private:
+    std::shared_ptr<OtherAccountPrinters> m_others;
 };
 
 // A service whose printers come from a printer agent (built-in or Python plug-in): the provider
@@ -76,9 +83,6 @@ protected:
     // Forgets the printers seen so far, e.g. after the account changed.
     void clear_printers();
 
-    // Parses one discovery announcement (the agent's ssdp JSON) into a printer; false to skip it.
-    virtual bool parse_announcement(const std::string& json, CloudPrinter& out) const;
-
 private:
     std::shared_ptr<IPrinterAgent> ensure_agent();
 
@@ -107,6 +111,24 @@ public:
     bool     is_logged_in() const override;
     void login(wxWindow* parent) override;
     void logout() override;
+
+    void refresh_printers(PrintersCallback done) override;
+
+private:
+    std::shared_ptr<OtherAccountPrinters> m_others;
+};
+
+// Creality: the Creality Cloud account (CrealityCloud::SessionStore), whose printers the
+// "creality_cloud" agent announces.
+class CrealityCloudProvider : public PrinterAgentCloudProvider
+{
+public:
+    CrealityCloudProvider();
+
+    void refresh_printers(PrintersCallback done) override;
+
+private:
+    std::shared_ptr<OtherAccountPrinters> m_others;
 };
 
 // Elegoo: the Elegoo cloud account (native client, slic3r/Utils/ElegooCloud) lists the account's
@@ -126,6 +148,9 @@ public:
     // The printer list, with an opened cloud printer's page shown in its place.
     wxWindow* create_page(wxWindow* parent) override;
     void open_printer(wxWindow* parent, const std::string& printer_id) override;
+
+private:
+    std::shared_ptr<OtherAccountPrinters> m_others;
 };
 
 }} // namespace Slic3r::GUI

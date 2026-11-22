@@ -1,7 +1,11 @@
 #include "ElegooLoginDialog.hpp"
 
 #include <exception>
+#include <functional>
+#include <memory>
 #include <string>
+#include <thread>
+#include <utility>
 
 #include <boost/log/trivial.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -11,6 +15,8 @@
 
 #include <wx/button.h>
 #include <wx/choice.h>
+#include <wx/defs.h>
+#include <wx/event.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
@@ -48,11 +54,13 @@ ElegooLoginDialog::ElegooLoginDialog(wxWindow* parent)
     auto* import = new wxButton(this, wxID_ANY, _L("Use ElegooSlicer sign-in"));
     import->SetToolTip(_L("Copy the Elegoo account that ElegooSlicer is signed in to on this computer."));
     import->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        std::string error;
-        if (ElegooCloud::instance().import_from_elegooslicer(error))
-            EndModal(wxID_OK);
-        else
-            wxMessageBox(wxString::FromUTF8(error), _L("Sign in to Elegoo"), wxOK | wxICON_WARNING, this);
+        check_sign_in([](std::string& error) { return ElegooCloud::instance().import_from_elegooslicer(error); },
+                      [this](bool ok, const std::string& error) {
+                          if (ok)
+                              EndModal(wxID_OK);
+                          else
+                              wxMessageBox(wxString::FromUTF8(error), _L("Sign in to Elegoo"), wxOK | wxICON_WARNING, this);
+                      });
     });
     bar->Add(import, 0, wxALIGN_CENTER_VERTICAL);
 #endif
@@ -95,6 +103,29 @@ std::string ElegooLoginDialog::device_id()
 
 void ElegooLoginDialog::on_dpi_changed(const wxRect&) { Layout(); }
 
+void ElegooLoginDialog::check_sign_in(std::function<bool(std::string&)> work, std::function<void(bool, const std::string&)> done)
+{
+    if (m_checking)
+        return;
+    m_checking                = true;
+    std::weak_ptr<bool> alive = m_alive;
+    std::thread([this, alive, work = std::move(work), done = std::move(done)] {
+        std::string error;
+        bool        ok = false;
+        try {
+            ok = work(error);
+        } catch (const std::exception& e) {
+            error = e.what();
+        }
+        wxGetApp().CallAfter([this, alive, ok, error, done] {
+            if (alive.expired()) // the window is destroyed on this thread, so it can't go in between
+                return;
+            m_checking = false;
+            done(ok, error);
+        });
+    }).detach();
+}
+
 void ElegooLoginDialog::respond(const wxString& id, const wxString& method, bool ok, const wxString& message)
 {
     const json reply = {{"id", id.ToUTF8().data()},
@@ -134,19 +165,24 @@ void ElegooLoginDialog::handle_script_message(wxWebViewEvent& evt)
         return;
     }
     if (method == "report.userInfo") {
-        std::string error;
-        const bool  ok = ElegooCloud::instance().accept_login_report(msg.value("params", json::object()), error);
-        respond(id, method, ok, wxString::FromUTF8(error));
-        if (ok) {
-            CallAfter([this]() { EndModal(wxID_OK); });
-        } else {
-            // Without this the page sits on its loading screen and the window never closes.
-            BOOST_LOG_TRIVIAL(warning) << "Elegoo sign-in not accepted: " << error;
-            CallAfter([this, error]() {
-                wxMessageBox(wxString::FromUTF8(error), _L("Sign in to Elegoo"), wxOK | wxICON_WARNING, this);
-                load_page();
-            });
+        // The account itself is taken from the sign-in site only, not from any Elegoo page.
+        if (!ElegooCloud::is_login_page(m_browser->GetCurrentURL().utf8_string())) {
+            BOOST_LOG_TRIVIAL(warning) << "Elegoo sign-in: account report from outside the sign-in site ignored";
+            return;
         }
+        const json params = msg.value("params", json::object());
+        check_sign_in([params](std::string& error) { return ElegooCloud::instance().accept_login_report(params, error); },
+                      [this, id, method](bool ok, const std::string& error) {
+                          respond(id, method, ok, wxString::FromUTF8(error));
+                          if (ok) {
+                              EndModal(wxID_OK);
+                              return;
+                          }
+                          // Without this the page sits on its loading screen and the window never closes.
+                          BOOST_LOG_TRIVIAL(warning) << "Elegoo sign-in not accepted: " << error;
+                          wxMessageBox(wxString::FromUTF8(error), _L("Sign in to Elegoo"), wxOK | wxICON_WARNING, this);
+                          load_page();
+                      });
     } else if (method == "report.ready") {
         respond(id, method, true, {});
         const json event = {{"method", "client.setDeviceId"}, {"type", "event"}, {"data", {{"deviceId", device_id()}}}};

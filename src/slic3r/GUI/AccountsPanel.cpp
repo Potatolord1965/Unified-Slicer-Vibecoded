@@ -4,6 +4,7 @@
 #include <memory>
 #include <utility>
 
+#include <wx/colour.h>
 #include <wx/defs.h>
 #include <wx/event.h>
 #include <wx/panel.h>
@@ -16,6 +17,7 @@
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/MainFrame.hpp"
+#include "slic3r/GUI/MsgDialog.hpp"
 #include "slic3r/GUI/ModelSiteView.hpp"
 #include "slic3r/GUI/PhoneSignInDialog.hpp"
 #include "slic3r/GUI/WebViewDialog.hpp"
@@ -24,6 +26,7 @@
 #include "slic3r/GUI/Widgets/Label.hpp"
 #include "slic3r/Utils/CloudProvider.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
+#include "slic3r/Utils/SecretBox.hpp"
 
 namespace Slic3r { namespace GUI {
 
@@ -49,6 +52,7 @@ wxString provider_purpose(const std::string& id)
         {"bbl", L("Bambu Lab printers and MakerWorld")},
         {"elegoo", L("Elegoo printers and Nexprint")},
         {"creality", L("Creality Cloud printers")},
+        {"snapmaker", L("Snapmaker printers")},
         {"markforged", L("Markforged printers (Eiger)")},
     };
     const auto it = purposes.find(id);
@@ -98,6 +102,13 @@ AccountsPanel::AccountsPanel(wxWindow* parent)
     intro->SetFont(Label::Body_13);
     intro->SetForegroundColour(wxColour("#6B6B6B"));
     outer->Add(intro, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+    if (!SecretBox::can_encrypt()) {
+        auto* plain = new wxStaticText(this, wxID_ANY,
+                                       _L("This computer has no keychain, so sign-ins are saved unencrypted, in files only your user account can open."));
+        plain->SetFont(Label::Body_13);
+        plain->SetForegroundColour(wxColour("#B26A00"));
+        outer->Add(plain, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+    }
 
     m_list = new wxBoxSizer(wxVERTICAL);
     outer->Add(m_list, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(24));
@@ -105,7 +116,7 @@ AccountsPanel::AccountsPanel(wxWindow* parent)
 
     Bind(wxEVT_TIMER, [this](wxTimerEvent&) { update_rows(); }, m_timer.GetId());
     m_listener = CloudPrinterProviders::listen([this](const std::string& provider_id) {
-        if (provider_id.empty())
+        if (provider_id.empty() && m_busy == 0)
             rebuild();
         else
             update_rows();
@@ -146,11 +157,51 @@ void AccountsPanel::rebuild()
         row.signed_in          = [wp] { auto s = wp.lock(); return s && s->is_logged_in(); };
         row.account            = [wp] { auto s = wp.lock(); return s ? s->account_name() : wxString(); };
         row.sign_in            = [wp](wxWindow* parent) { if (auto s = wp.lock()) s->login(parent); };
-        row.sign_out           = [wp] { if (auto s = wp.lock()) s->logout(); };
+        row.sign_out           = [wp] { if (auto s = wp.lock()) s->sign_out(); };
         row.available          = [wp] { auto s = wp.lock(); return s && s->is_available(); };
         row.unavailable_reason = [wp] { auto s = wp.lock(); return s ? s->unavailable_reason() : wxString(); };
         row.install            = [wp](wxWindow* parent) { if (auto s = wp.lock()) s->install_or_enable(parent); };
+        if (!p->supports_multiple_accounts()) {
+            add_row(std::move(row));
+            continue;
+        }
+
+        // Several accounts: the service row adds one, and each account has a row of its own.
+        const std::vector<CloudAccountInfo> accounts = p->is_logged_in() ? p->accounts() : std::vector<CloudAccountInfo>();
+        row.add_account = [wp](wxWindow* parent) { if (auto s = wp.lock()) s->add_account(parent); };
+        if (accounts.size() > 1)
+            row.account = [wp] {
+                wxString names;
+                if (auto s = wp.lock())
+                    for (const CloudAccountInfo& a : s->accounts())
+                        names += (names.empty() ? "" : ", ") + a.label;
+                return names;
+            };
         add_row(std::move(row));
+        if (accounts.size() < 2)
+            continue;
+        for (const CloudAccountInfo& a : accounts) {
+            Row acc;
+            acc.name   = a.label;
+            acc.brand  = p->brand_colour();
+            acc.indent = true;
+            acc.purpose = a.active ? _L("In use: sending and the Printer page use this account") :
+                                     _L("Its printers show on the Device tab. Opening or printing to one switches to it.");
+            if (!a.active) {
+                acc.action_label = _L("Use");
+                const std::string key = a.key;
+                acc.sign_in = [wp, key](wxWindow* parent) {
+                    auto s = wp.lock();
+                    if (s && !s->switch_account(key))
+                        MessageDialog(parent, _L("This account's sign-in no longer works. Sign out of it and sign in again."), s->display_name(),
+                                      wxOK | wxICON_WARNING)
+                            .ShowModal();
+                };
+            }
+            acc.secondary_label = _L("Sign out");
+            acc.secondary       = [wp, key = a.key] { if (auto s = wp.lock()) s->sign_out(key); };
+            add_row(std::move(acc));
+        }
     }
 
     add_section(_L("Model sites"));
@@ -186,10 +237,18 @@ void AccountsPanel::rebuild()
         row.signed_in          = [wp] { auto s = wp.lock(); return s && s->is_logged_in(); };
         row.account            = [wp] { auto s = wp.lock(); return s ? s->account_name() : wxString(); };
         row.sign_in            = [wp](wxWindow* parent) { if (auto s = wp.lock()) s->login(parent); };
-        row.sign_out           = [wp] { if (auto s = wp.lock()) s->logout(); };
+        row.sign_out           = [wp] { if (auto s = wp.lock()) s->sign_out(); };
         row.available          = [wp] { auto s = wp.lock(); return s && s->is_available(); };
         row.unavailable_reason = [wp] { auto s = wp.lock(); return s ? s->unavailable_reason() : wxString(); };
         row.install            = [wp](wxWindow* parent) { if (auto s = wp.lock()) s->install_or_enable(parent); };
+        add_row(std::move(row));
+    }
+    {
+        Row row;
+        row.name         = "Snapmaker Space";
+        row.purpose      = _L("Signs in on its own page on the Home tab");
+        row.action_label = _L("Open");
+        row.sign_in      = [](wxWindow*) { show_model_site("snapmaker"); };
         add_row(std::move(row));
     }
     {
@@ -215,10 +274,21 @@ void AccountsPanel::rebuild()
         add_row(std::move(row));
     }
 
+    m_accounts_shown = accounts_signature();
     update_rows();
     FitInside();
     Layout();
     Thaw();
+}
+
+std::string AccountsPanel::accounts_signature() const
+{
+    std::string sig;
+    for (const CloudPrinterProviderPtr& p : CloudPrinterProviders::all())
+        if (p->supports_multiple_accounts() && p->is_logged_in())
+            for (const CloudAccountInfo& a : p->accounts())
+                sig += p->id() + "/" + a.key + (a.active ? "*" : "") + into_u8(a.label) + "\n";
+    return sig;
 }
 
 void AccountsPanel::add_section(const wxString& title)
@@ -234,6 +304,8 @@ void AccountsPanel::add_row(Row row)
     const size_t index = m_rows.size();
 
     auto* line = new wxBoxSizer(wxHORIZONTAL);
+    if (row.indent)
+        line->AddSpacer(FromDIP(24));
     // Brand swatch; the app's grey for accounts without a brand colour.
     auto* swatch = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(FromDIP(4), FromDIP(36)));
     swatch->SetBackgroundColour(row.brand.IsOk() ? row.brand : wxColour("#9E9E9E"));
@@ -260,20 +332,40 @@ void AccountsPanel::add_row(Row row)
     row.button->Bind(wxEVT_BUTTON, [this, index](wxCommandEvent&) {
         if (index >= m_rows.size())
             return;
+        // Sign-ins run modal windows, whose event loop may deliver a refresh: no rebuild meanwhile,
+        // it would destroy this button under its own handler.
+        ++m_busy;
         Row& r = m_rows[index];
         if (r.available && !r.available()) {
             if (r.install)
                 r.install(this);
         } else if (r.signed_in && r.signed_in()) {
-            if (r.sign_out)
+            if (r.add_account)
+                r.add_account(this);
+            else if (r.sign_out)
                 r.sign_out();
         } else if (r.sign_in) {
             r.sign_in(this);
         }
+        --m_busy;
         // The rows may have been rebuilt meanwhile (a provider list change).
         CallAfter([this] { update_rows(); });
     });
     line->Add(row.button, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(16));
+    if (row.secondary) {
+        auto* second = new Button(this, row.secondary_label);
+        second->SetMinSize(wxSize(FromDIP(100), -1));
+        second->SetStyle(ButtonStyle::Regular, ButtonType::Window);
+        second->Bind(wxEVT_BUTTON, [this, index](wxCommandEvent&) {
+            ++m_busy;
+            if (index < m_rows.size() && m_rows[index].secondary)
+                m_rows[index].secondary();
+            --m_busy;
+            CallAfter([this] { update_rows(); });
+        });
+        line->Add(second, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+        row.second_button = second;
+    }
 
     m_list->Add(line, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(8));
     m_rows.push_back(std::move(row));
@@ -281,6 +373,11 @@ void AccountsPanel::add_row(Row row)
 
 void AccountsPanel::update_rows()
 {
+    // An account was added, switched to or signed out of: its rows come and go.
+    if (m_busy == 0 && accounts_signature() != m_accounts_shown) {
+        rebuild();
+        return;
+    }
     bool changed = false;
     for (Row& row : m_rows) {
         const wxString before = row.shown;
@@ -309,7 +406,7 @@ void AccountsPanel::update_row(Row& row)
         const wxString name = row.account ? row.account() : wxString();
         // TRN %1% is the name of a signed-in account.
         status  = name.empty() ? _L("Signed in") : format_wxstr(_L("Signed in as %1%"), name);
-        label   = _L("Sign out");
+        label   = row.add_account ? _L("Add account") : _L("Sign out");
         primary = false;
     } else {
         status  = _L("Not signed in");
@@ -337,8 +434,11 @@ void AccountsPanel::msw_rescale()
     m_phone_button->SetMinSize(wxSize(FromDIP(100), -1));
     m_phone_button->Rescale();
     for (Row& row : m_rows) {
-        row.button->SetMinSize(wxSize(FromDIP(100), -1));
-        row.button->Rescale();
+        for (Button* b : {row.button, row.second_button})
+            if (b != nullptr) {
+                b->SetMinSize(wxSize(FromDIP(100), -1));
+                b->Rescale();
+            }
     }
     Layout();
 }

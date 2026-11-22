@@ -1,4 +1,5 @@
 #include "CloudPrinterProvider.hpp"
+#include "CloudAccounts.hpp"
 
 #include <algorithm>
 #include <map>
@@ -6,6 +7,11 @@
 #include <utility>
 
 #include <wx/app.h>
+#include <wx/defs.h>
+
+#include "slic3r/GUI/I18N.hpp"
+#include "slic3r/GUI/MsgDialog.hpp"
+#include "slic3r/GUI/format.hpp"
 
 namespace Slic3r { namespace GUI {
 
@@ -17,6 +23,57 @@ std::map<int, CloudPrinterProviders::Listener> s_listeners;
 int                                  s_next_listener{1};
 
 } // namespace
+
+std::vector<CloudAccountInfo> CloudPrinterProvider::accounts()
+{
+    std::vector<CloudAccountInfo> out;
+    if (!m_account_set)
+        return out;
+    const std::string active = m_account_set->active_key();
+    for (const SavedCloudAccount& a : m_account_set->accounts())
+        out.push_back({a.key, wxString::FromUTF8(a.label.empty() ? a.key : a.label), a.key == active});
+    return out;
+}
+
+void CloudPrinterProvider::add_account(wxWindow* parent)
+{
+    if (m_account_set)
+        m_account_set->add([this, parent] { login(parent); });
+    else
+        login(parent);
+    CloudPrinterProviders::notify_changed(id());
+}
+
+bool CloudPrinterProvider::switch_account(const std::string& key)
+{
+    const bool ok = m_account_set && m_account_set->switch_to(key);
+    CloudPrinterProviders::notify_changed(id());
+    return ok;
+}
+
+void CloudPrinterProvider::sign_out(const std::string& key)
+{
+    if (!m_account_set)
+        logout();
+    else
+        m_account_set->remove(key.empty() ? m_account_set->active_key() : key, [this] { logout(); });
+    CloudPrinterProviders::notify_changed(id());
+}
+
+bool CloudPrinterProvider::use_account_of(wxWindow* parent, const CloudPrinter& printer)
+{
+    if (!m_account_set || printer.account_key.empty() || printer.account_key == m_account_set->active_key())
+        return true;
+    if (switch_account(printer.account_key))
+        return true;
+    // TRN %1% is an account name, %2% a printer service such as "Bambu Lab".
+    MessageDialog(parent,
+                  format_wxstr(_L("The sign-in of %1% no longer works. Sign in to that %2% account again on the Accounts tab."),
+                               printer.account_label, display_name()),
+                  display_name(), wxOK | wxICON_WARNING)
+        .ShowModal();
+    return false;
+}
 
 void CloudPrinterProviders::add(CloudPrinterProviderPtr provider)
 {

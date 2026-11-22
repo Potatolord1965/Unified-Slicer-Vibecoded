@@ -27,6 +27,7 @@ on:
      - 'scripts/test_prune_cached_presets.ps1'
      - 'scripts/flatpak/**'
      - 'scripts/msix/**'
+     - 'scripts/dmg/**'
      - 'scripts/sign_windows.ps1'
      - 'tests/**'
 
@@ -54,6 +55,7 @@ on:
      - 'scripts/test_prune_cached_presets.ps1'
      - 'scripts/flatpak/**'
      - 'scripts/msix/**'
+     - 'scripts/dmg/**'
      - 'scripts/sign_windows.ps1'
      - 'tests/**'
 
@@ -263,12 +265,12 @@ jobs:
       # don't let a publish failure fail the run. The test jobs gate correctness.
       - name: Publish Test Results
         continue-on-error: true
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: EnricoMi/publish-unit-test-result-action@da5b7be67623cd59bbbd1a0ce4f022050a55605f # v2
         with:
           files: "test-results/**/*.xml"
       - name: Delete Test Results
         if: success()
-        uses: geekyeggo/delete-artifact@v6
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6
         with:
           name: test-results-*
           failOnError: false
@@ -407,10 +409,23 @@ jobs:
     - name: Check the manifest keeps orca_deps cacheable
       run: ./scripts/flatpak/check_manifest_cacheable.sh
       shell: bash
+    # The image ships the GNOME SDK preinstalled. On overlayfs without redirect_dir
+    # (the x86_64 runners), updating it renames directories from the image's lower
+    # layer, which fails with "Invalid cross-device link". Copying the installation
+    # moves every directory into the writable layer, where renames work.
+    - name: Move the preinstalled Flatpak runtimes into the writable layer
+      run: |
+        for dir in /var/lib/flatpak "$HOME/.local/share/flatpak"; do
+          [ -d "$dir" ] || continue
+          cp -a "$dir" "$dir.rw"
+          rm -rf "$dir"
+          mv "$dir.rw" "$dir"
+        done
+      shell: bash
     - name: Pack deps/ for the Flatpak manifest
       run: ./scripts/flatpak/make_deps_tar.sh
       shell: bash
-    - uses: flatpak/flatpak-github-actions/flatpak-builder@master
+    - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # master
       with:
         bundle: OrcaSlicer-Linux-flatpak_${{ env.ver }}_${{ matrix.variant.arch }}.flatpak
         manifest-path: scripts/flatpak/com.orcaslicer.OrcaSlicer.yml
@@ -485,15 +500,17 @@ jobs:
       run: |
         d=$(ls -d .flatpak-builder/build/OrcaSlicer-* | tail -1)
         find "$d/build_flatpak" -mindepth 1 -maxdepth 1 ! -name tests -exec rm -rf {} +
-        # Strip debug info (the SDK builds with -g, only the app gets stripped);
+        # Strip debug info (the SDK builds with -g, only the app gets stripped) but keep the
+        # symbol table, so the backtraces unit_tests_flatpak.yml prints name each frame;
         # the bounds checks are compiled in, so a stripped exe still catches them.
-        find "$d/build_flatpak/tests" -type f -perm -u+x -exec strip --strip-unneeded {} + 2>/dev/null || true
+        find "$d/build_flatpak/tests" -type f -perm -u+x -exec strip --strip-debug {} + 2>/dev/null || true
         # At runtime the tests read tests/ (TEST_DATA_DIR), scripts/, and under
-        # resources/ the shipped profiles (PROFILES_DIR), the printers/ maps, and
-        # the icon SVGs (NativeCommands icon names are checked against them).
+        # resources/ the shipped profiles (PROFILES_DIR), the printers/ maps, the
+        # SVG infill patterns (infill/), and the icon SVGs (NativeCommands icon
+        # names are checked against them).
         find "$d" -mindepth 1 -maxdepth 1 -type d \
           ! -name tests ! -name build_flatpak ! -name scripts ! -name resources -exec rm -rf {} +
-        find "$d/resources" -mindepth 1 -maxdepth 1 ! -name profiles ! -name printers ! -name images -exec rm -rf {} +
+        find "$d/resources" -mindepth 1 -maxdepth 1 ! -name profiles ! -name printers ! -name infill ! -name images -exec rm -rf {} +
         # Only the SVGs are read; the png/ico/icns/gif assets are ~35MB of dead weight.
         find "$d/resources/images" -mindepth 1 -maxdepth 1 ! -name '*.svg' -exec rm -rf {} + 2>/dev/null || true
         tar -cf flatpak-test-asset.tar flatpak_app "$d"

@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.elegoo
 
+import app.unifiedslicer.companion.core.model.FilamentSlot
+import app.unifiedslicer.companion.core.net.arr
 import app.unifiedslicer.companion.core.model.Brand
 import app.unifiedslicer.companion.core.model.PrinterState
 import app.unifiedslicer.companion.core.model.PrinterStatus
@@ -30,15 +32,41 @@ object ElegooStatus {
         2 -> when (sub) {
             2501, 2502, 2505 -> PrinterState.PAUSED
             2077 -> PrinterState.FINISHED
-            2503, 2504 -> PrinterState.FAILED
+            // 2503 "Stopping" is still moving, so it counts as printing until 2504 "Stopped".
+            2504 -> PrinterState.FAILED
             in PREPARING -> PrinterState.PREPARING
             else -> PrinterState.PRINTING
         }
         1 -> if (sub == 2077) PrinterState.FINISHED else PrinterState.IDLE
         0 -> PrinterState.PREPARING
         14 -> PrinterState.FAILED
-        null -> PrinterState.UNKNOWN
-        else -> PrinterState.IDLE
+        else -> PrinterState.UNKNOWN
+    }
+
+    /**
+     * Canvas (multi-colour unit) trays, as in elegoo-link's handleCanvasStatus: canvas_list[] with
+     * tray_list[] {tray_id, filament_type, filament_color, status}; active_canvas_id/active_tray_id.
+     */
+    fun canvas(ci: JsonObject?): List<FilamentSlot> {
+        if (ci == null) return emptyList()
+        val activeCanvas = ci.int("active_canvas_id")
+        val activeTray = ci.int("active_tray_id")
+        val many = (ci.arr("canvas_list")?.size ?: 0) > 1
+        return ci.arr("canvas_list").orEmpty().flatMap { canvas ->
+            val id = canvas.int("canvas_id") ?: 0
+            if (canvas.int("connected") == 0) return@flatMap emptyList()
+            canvas.arr("tray_list").orEmpty().mapNotNull { tray ->
+                val trayId = tray.int("tray_id") ?: return@mapNotNull null
+                val type = tray.str("filament_type").orEmpty()
+                FilamentSlot(
+                    label = (if (many) "${id + 1}-" else "") + (trayId + 1),
+                    type = type.ifEmpty { "Empty" },
+                    color = tray.str("filament_color")?.let { c -> if (c.startsWith("#")) c.uppercase() else "#" + c.uppercase() }?.takeIf { it.length == 7 },
+                    active = id == activeCanvas && trayId == activeTray,
+                    empty = type.isEmpty(),
+                )
+            }
+        }
     }
 
     fun toStatus(
@@ -77,6 +105,7 @@ object ElegooStatus {
             bed = temp("heater_bed"),
             chamber = temp("ztemperature_sensor"),
             alert = alert?.let { "Alert $it" },
+            filament = canvas(s.obj("canvas_info")),
             updatedAt = updatedAt,
         )
     }

@@ -2805,14 +2805,17 @@ static void np_object_mesh(const PrintObject &object, TriangleMesh &mesh, std::v
     }
 }
 
+void nonplanar_top_forget(const PrintObject &object)
+{
+    std::lock_guard<std::mutex> lock(g_np_cache_mutex);
+    g_np_cache.erase(&object);
+}
+
 std::string nonplanar_top_clip_slices(PrintObject &object, size_t *skipped_tops)
 {
     if (skipped_tops != nullptr)
         *skipped_tops = 0;
-    {
-        std::lock_guard<std::mutex> lock(g_np_cache_mutex);
-        g_np_cache.erase(&object);
-    }
+    nonplanar_top_forget(object);
     if (! nonplanar_top_requested(object) || object.layers().size() < 2)
         return std::string();
     TriangleMesh                        tmesh;
@@ -2869,6 +2872,10 @@ ExPolygons nonplanar_held_above(const Layer &layer)
         if (it != g_np_cache.end()) cached = it->second;
     }
     if (! cached || cached->held_above.empty())
+        return ExPolygons();
+    // The whole layer list, as the other readers check it: a layer at an address of the old list is not enough.
+    const auto layers = layer.object()->layers();
+    if (cached->layers.size() != layers.size() || ! std::equal(layers.begin(), layers.end(), cached->layers.begin()))
         return ExPolygons();
     const auto it = std::find(cached->layers.begin(), cached->layers.end(), &layer);
     if (it == cached->layers.end())

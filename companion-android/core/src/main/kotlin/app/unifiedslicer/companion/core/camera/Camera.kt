@@ -3,7 +3,7 @@ package app.unifiedslicer.companion.core.camera
 import app.unifiedslicer.companion.core.model.Account
 import app.unifiedslicer.companion.core.model.LanKind
 import app.unifiedslicer.companion.core.model.LanPrinter
-import app.unifiedslicer.companion.core.net.insecureSocketFactory
+import app.unifiedslicer.companion.core.net.bambuPrinterSocketFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -28,11 +28,11 @@ sealed interface CameraFeed {
     /** A snapshot URL (polled) or an MJPEG stream. */
     data class Http(val url: String, val headers: Map<String, String> = emptyMap()) : CameraFeed
 
-    /** Bambu A1 / P1 series: JPEG frames over TLS on port 6000. */
-    data class BambuJpeg(val host: String, val accessCode: String) : CameraFeed
+    /** Bambu A1 / P1 series: JPEG frames over TLS on port 6000, from the printer with [serial]. */
+    data class BambuJpeg(val host: String, val accessCode: String, val serial: String) : CameraFeed
 
     /** Bambu X1 series: RTSP over TLS (H.264); [url] carries the credentials. Played by the app. */
-    data class BambuRtsp(val url: String) : CameraFeed
+    data class BambuRtsp(val url: String, val serial: String) : CameraFeed
 }
 
 /** A source whose printers have a camera this app can show. */
@@ -106,7 +106,7 @@ private fun bambuFrames(feed: CameraFeed.BambuJpeg): Flow<ByteArray> = flow {
     try {
         plain.connect(InetSocketAddress(feed.host, 6000), 8000)
         plain.soTimeout = 20_000
-        insecureSocketFactory().createSocket(plain, feed.host, 6000, true).use { socket ->
+        bambuPrinterSocketFactory(feed.serial).createSocket(plain, feed.host, 6000, true).use { socket ->
             socket.getOutputStream().apply { write(bambuAuthPacket(feed.accessCode)); flush() }
             val input = DataInputStream(socket.getInputStream().buffered(64 * 1024))
             val header = ByteArray(16)

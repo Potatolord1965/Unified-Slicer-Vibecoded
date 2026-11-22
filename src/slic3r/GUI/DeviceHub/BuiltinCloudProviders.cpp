@@ -1,8 +1,10 @@
 #include "BuiltinCloudProviders.hpp"
+#include "CloudAccounts.hpp"
 #include "DeviceHubPanel.hpp"
 #include "slic3r/GUI/BusyWork.hpp"
 
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include <boost/log/trivial.hpp>
@@ -28,8 +30,11 @@
 #include "slic3r/GUI/MainFrame.hpp"
 #include "slic3r/GUI/MsgDialog.hpp"
 #include "slic3r/Utils/CloudProvider.hpp"
+#include "slic3r/Utils/CrealityCloud.hpp"
 #include "slic3r/Utils/ElegooCloud.hpp"
+#include "slic3r/Utils/Http.hpp"
 #include "slic3r/Utils/MarkforgedEiger.hpp"
+#include "slic3r/Utils/PhoneSignIn.hpp"
 #include "slic3r/GUI/ElegooLoginDialog.hpp"
 #include "slic3r/GUI/ElegooCloudMonitor.hpp"
 #include <wx/utils.h>
@@ -162,10 +167,154 @@ void parse_bambu_cloud_list(const std::string& body)
     s_bambu_cloud = std::move(list);
 }
 
+void reset_bambu_cloud_list()
+{
+    std::lock_guard<std::mutex> lock(s_bambu_mutex);
+    s_bambu_cloud.clear();
+    s_bambu_last_fetch = 0;
+}
+
+std::string bambu_api_base(const nlohmann::json& data)
+{
+    return data.value("region", std::string()) == "CN" ? "https://api.bambulab.cn" : "https://api.bambulab.com";
+}
+
+// One HTTP call to Bambu's cloud API with the account's own token; the status and body come back.
+unsigned bambu_api(Http http, std::string& body)
+{
+    unsigned status = 0;
+    http.header("Accept", "application/json").tls_verify(true).timeout_connect(10).timeout_max(30)
+        .on_complete([&](std::string b, unsigned s) { body = std::move(b); status = s; })
+        .on_error([&](std::string b, std::string, unsigned s) { body = std::move(b); status = s; })
+        .perform_sync();
+    return status;
+}
+
+// The printers of a saved Bambu account that is not the plug-in's: the same list Bambu Handy
+// shows, with the account's token. A rejected token is renewed once with the refresh token, and
+// the saved sign-in (including the message that signs the plug-in in to it) takes the new one.
+std::vector<CloudPrinter> fetch_bambu_account(nlohmann::json& data)
+{
+    const std::string base = bambu_api_base(data);
+    auto list = [&](std::string& body) {
+        Http http = Http::get(base + "/v1/iot-service/api/user/bind");
+        http.header("Authorization", "Bearer " + data.value("access_token", std::string()));
+        return bambu_api(std::move(http), body);
+    };
+    std::string body;
+    unsigned    status = list(body);
+    if ((status == 401 || status == 403) && !data.value("refresh_token", std::string()).empty()) {
+        std::string reply;
+        Http        http = Http::post(base + "/v1/user-service/user/refreshtoken");
+        http.header("Content-Type", "application/json").set_post_body(nlohmann::json{{"refreshToken", data.value("refresh_token", std::string())}}.dump());
+        if (bambu_api(std::move(http), reply) == 200) {
+            const nlohmann::json j = nlohmann::json::parse(reply, nullptr, false);
+            if (j.is_object() && j.contains("accessToken") && j["accessToken"].is_string()) {
+                data["access_token"]  = j["accessToken"];
+                data["refresh_token"] = j.value("refreshToken", data.value("refresh_token", std::string()));
+                nlohmann::json msg    = nlohmann::json::parse(data.value("login_message", std::string()), nullptr, false);
+                if (msg.is_object() && msg.contains("data") && msg["data"].is_object()) {
+                    msg["data"]["token"]         = data["access_token"];
+                    msg["data"]["refresh_token"] = data["refresh_token"];
+                    data["login_message"]        = msg.dump();
+                }
+                status = list(body);
+            }
+        }
+    }
+    if (status == 401 || status == 403)
+        throw std::runtime_error(_u8L("Signed out. Sign in to this account again on the Accounts tab."));
+    const nlohmann::json j = nlohmann::json::parse(body, nullptr, false);
+    if (status != 200 || !j.is_object() || !j.contains("devices") || !j["devices"].is_array())
+        throw std::runtime_error(_u8L("Could not reach the Bambu Lab cloud."));
+
+    std::vector<CloudPrinter> out;
+    for (const nlohmann::json& d : j["devices"]) {
+        auto str = [&d](const char* key) { return d.contains(key) && d[key].is_string() ? d[key].get<std::string>() : std::string(); };
+        CloudPrinter p;
+        p.id = str("dev_id");
+        if (p.id.empty())
+            continue;
+        p.name                 = from_u8(str("name").empty() ? p.id : str("name"));
+        const std::string code = str("dev_model_name");
+        std::string       model = code.empty() ? std::string() : DevPrinterConfigUtil::get_printer_display_name(code);
+        if (model.empty())
+            model = str("dev_product_name");
+        p.model  = from_u8(model.empty() ? code : model);
+        p.image  = code.empty() ? std::string() : "printer_preview_" + code;
+        p.online = d.contains("online") && d["online"].is_boolean() && d["online"].get<bool>();
+        const std::string status_code = str("print_status");
+        p.status = !p.online ? _L("Offline") : status_code.empty() ? _L("Online") : print_status_text(status_code);
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
 } // namespace
+
+BambuCloudProvider::BambuCloudProvider()
+{
+    m_others = std::make_shared<OtherAccountPrinters>(BBL_CLOUD_PROVIDER, fetch_bambu_account);
+    auto cloud = [] {
+        NetworkAgent* agent = wxGetApp().getAgent();
+        return agent != nullptr ? agent->get_cloud_agent(BBL_CLOUD_PROVIDER) : nullptr;
+    };
+    CloudAccountSet::Hooks hooks;
+    hooks.active_key = [cloud] {
+        std::shared_ptr<ICloudServiceAgent> c = cloud();
+        return c && c->is_user_login() ? c->get_user_id() : std::string();
+    };
+    hooks.active_label = [this] { return into_u8(account_name()); };
+    // The plug-in keeps its tokens to itself: the sign-in is the "user_login" message its page
+    // reported, which PhoneSignIn keeps for the account signed in last.
+    hooks.capture = [cloud]() -> nlohmann::json {
+        std::shared_ptr<ICloudServiceAgent> c = cloud();
+        const PhoneSignIn::BambuSession     s = PhoneSignIn::bambu_session();
+        if (!c || s.login_message.empty() || s.user_id != c->get_user_id())
+            return nullptr;
+        const bool china = wxGetApp().app_config != nullptr && wxGetApp().app_config->get_country_code() == "CN";
+        return {{"login_message", s.login_message},
+                {"access_token", s.access_token},
+                {"refresh_token", s.refresh_token},
+                {"region", china ? "CN" : "global"}};
+    };
+    hooks.apply = [this](const nlohmann::json& data) {
+        NetworkAgent* agent = wxGetApp().getAgent();
+        const std::string message = data.value("login_message", std::string());
+        if (agent == nullptr || message.empty())
+            return false;
+        // What the sign-in page does when it reports a login (GUI_App::handle_script_message).
+        agent->change_user(message, BBL_CLOUD_PROVIDER);
+        reset_bambu_cloud_list();
+        m_others->invalidate();
+        if (!agent->is_user_login(BBL_CLOUD_PROVIDER))
+            return false;
+        wxGetApp().request_user_login(1, BBL_CLOUD_PROVIDER);
+        return true;
+    };
+    hooks.detach = [] {
+        NetworkAgent* agent = wxGetApp().getAgent();
+        if (agent == nullptr)
+            return;
+        // Not request_user_logout(): that also ends the session on Bambu's side, and this account
+        // stays saved to switch back to.
+        if (wxGetApp().get_printer_cloud_provider() == BBL_CLOUD_PROVIDER) {
+            agent->set_user_selected_machine("");
+            if (DeviceManager* dev = wxGetApp().getDeviceManager())
+                dev->clean_user_info(true);
+        }
+        agent->user_logout(false, BBL_CLOUD_PROVIDER);
+        reset_bambu_cloud_list();
+    };
+    m_account_set = std::make_shared<CloudAccountSet>(BBL_CLOUD_PROVIDER, std::move(hooks));
+}
 
 void BambuCloudProvider::refresh_printers(PrintersCallback done)
 {
+    done = [done, others = m_others, set = m_account_set](std::vector<CloudPrinter> printers, wxString error) {
+        printers = others->merge(std::move(printers), set, error);
+        done(std::move(printers), error);
+    };
     std::vector<CloudPrinter> printers;
     DeviceManager* dev   = wxGetApp().getDeviceManager();
     NetworkAgent*  agent = wxGetApp().getAgent();
@@ -295,6 +444,36 @@ bool BambuCloudProvider::handles_printer_preset(const DynamicPrintConfig& printe
 // PrinterAgentCloudProvider
 // ---------------------------------------------------------------------------------------------
 
+namespace {
+
+// Parses one discovery announcement (a printer agent's ssdp JSON) into a printer; false to skip it.
+// Free of the provider so that the other-account fetch, which runs on a worker thread, never
+// needs one.
+bool parse_agent_announcement(const std::string& json, const std::string& agent_id, CloudPrinter& out)
+{
+    try {
+        const nlohmann::json j = nlohmann::json::parse(json);
+        out.id = j.value("dev_id", std::string());
+        if (out.id.empty())
+            return false;
+        out.name  = from_u8(j.value("dev_name", out.id));
+        out.model = from_u8(j.value("dev_type", std::string()));
+        out.online = j.value("online", true);
+        if (j.contains("status") && j["status"].is_string())
+            out.status = from_u8(j["status"].get<std::string>());
+        else
+            out.status = out.online ? _L("Online") : _L("Offline");
+        if (j.contains("progress") && j["progress"].is_number())
+            out.progress = j["progress"].get<int>();
+        return true;
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(warning) << "Device hub: bad announcement from agent " << agent_id << ": " << e.what();
+        return false;
+    }
+}
+
+} // namespace
+
 PrinterAgentCloudProvider::PrinterAgentCloudProvider(
     std::string provider_id, wxString display_name, int order, std::string agent_id, std::string cloud_provider, wxColour brand_colour)
     : m_id(std::move(provider_id))
@@ -411,7 +590,7 @@ std::shared_ptr<IPrinterAgent> PrinterAgentCloudProvider::ensure_agent()
     m_agent->set_queue_on_main_fn([](std::function<void()> fn) { wxGetApp().CallAfter(std::move(fn)); });
     m_agent->set_on_ssdp_msg_fn([this](std::string json) {
         CloudPrinter p;
-        if (!parse_announcement(json, p))
+        if (!parse_agent_announcement(json, m_agent_id, p))
             return;
         p.provider_id = m_id;
         {
@@ -427,29 +606,6 @@ std::shared_ptr<IPrinterAgent> PrinterAgentCloudProvider::ensure_agent()
         CloudPrinterProviders::notify_changed(m_id);
     });
     return m_agent;
-}
-
-bool PrinterAgentCloudProvider::parse_announcement(const std::string& json, CloudPrinter& out) const
-{
-    try {
-        const nlohmann::json j = nlohmann::json::parse(json);
-        out.id = j.value("dev_id", std::string());
-        if (out.id.empty())
-            return false;
-        out.name  = from_u8(j.value("dev_name", out.id));
-        out.model = from_u8(j.value("dev_type", std::string()));
-        out.online = j.value("online", true);
-        if (j.contains("status") && j["status"].is_string())
-            out.status = from_u8(j["status"].get<std::string>());
-        else
-            out.status = out.online ? _L("Online") : _L("Offline");
-        if (j.contains("progress") && j["progress"].is_number())
-            out.progress = j["progress"].get<int>();
-        return true;
-    } catch (const std::exception& e) {
-        BOOST_LOG_TRIVIAL(warning) << "Device hub: bad announcement from agent " << m_agent_id << ": " << e.what();
-        return false;
-    }
 }
 
 void PrinterAgentCloudProvider::refresh_printers(PrintersCallback done)
@@ -480,6 +636,81 @@ bool PrinterAgentCloudProvider::handles_printer_preset(const DynamicPrintConfig&
 }
 
 // ---------------------------------------------------------------------------------------------
+// CrealityCloudProvider
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+nlohmann::json creality_session_json(const CrealityCloud::Session& s)
+{
+    return {{"user_id", s.user_id}, {"token", s.token}, {"nickname", s.nickname}, {"avatar", s.avatar},
+            {"region", CrealityCloud::region_to_string(s.region)}};
+}
+
+CrealityCloud::Session creality_session(const nlohmann::json& j)
+{
+    CrealityCloud::Session s;
+    s.user_id  = j.value("user_id", std::string());
+    s.token    = j.value("token", std::string());
+    s.nickname = j.value("nickname", std::string());
+    s.avatar   = j.value("avatar", std::string());
+    s.region   = CrealityCloud::region_from_string(j.value("region", std::string()));
+    return s;
+}
+
+} // namespace
+
+CrealityCloudProvider::CrealityCloudProvider()
+    : PrinterAgentCloudProvider("creality", "Creality", 30, "creality_cloud", "creality", wxColour("#D8762C"))
+{
+    namespace CC = CrealityCloud;
+    // The printers of another saved account, as the agent would announce them.
+    m_others = std::make_shared<OtherAccountPrinters>(id(), [agent = agent_id()](nlohmann::json& data) {
+        std::vector<CC::Device> devices;
+        std::string             error;
+        const int               code = CC::Client(creality_session(data)).list_devices(devices, error);
+        if (code == CC::CODE_TOKEN_INVALID)
+            throw std::runtime_error(_u8L("Signed out. Sign in to this account again on the Accounts tab."));
+        if (code != CC::CODE_OK)
+            throw std::runtime_error(error.empty() ? _u8L("Could not reach Creality Cloud.") : error);
+        std::vector<CloudPrinter> out;
+        for (const CC::Device& d : devices) {
+            CloudPrinter p;
+            if (parse_agent_announcement(CC::ssdp_payload(d).dump(), agent, p))
+                out.push_back(std::move(p));
+        }
+        return out;
+    });
+    CloudAccountSet::Hooks hooks;
+    hooks.active_key   = [] { const CC::Session s = CC::SessionStore::get(); return s.valid() ? s.user_id : std::string(); };
+    hooks.active_label = [] { const CC::Session s = CC::SessionStore::get(); return s.nickname.empty() ? s.user_id : s.nickname; };
+    hooks.capture      = []() -> nlohmann::json { return creality_session_json(CC::SessionStore::get()); };
+    hooks.apply        = [this](const nlohmann::json& data) {
+        const CC::Session s = creality_session(data);
+        if (!s.valid())
+            return false;
+        CC::SessionStore::set(s);
+        clear_printers();
+        m_others->invalidate();
+        return true;
+    };
+    // The session lives only in the app's file; dropping it here leaves it valid on the server.
+    hooks.detach  = [this] {
+        CC::SessionStore::clear();
+        clear_printers();
+    };
+    m_account_set = std::make_shared<CloudAccountSet>(id(), std::move(hooks));
+}
+
+void CrealityCloudProvider::refresh_printers(PrintersCallback done)
+{
+    PrinterAgentCloudProvider::refresh_printers([&](std::vector<CloudPrinter> printers, wxString error) {
+        printers = m_others->merge(std::move(printers), m_account_set, error);
+        done(std::move(printers), error);
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
 // MarkforgedCloudProvider
 // ---------------------------------------------------------------------------------------------
 
@@ -491,7 +722,55 @@ bool write_markforged_settings(const nlohmann::json& settings) { return Eiger::w
 
 } // namespace
 
-MarkforgedCloudProvider::MarkforgedCloudProvider() : PrinterAgentCloudProvider("markforged", "Markforged", 40, "markforged_eiger", {}, wxColour("#8B8F95")) {}
+MarkforgedCloudProvider::MarkforgedCloudProvider() : PrinterAgentCloudProvider("markforged", "Markforged", 40, "markforged_eiger", {}, wxColour("#8B8F95"))
+{
+    // Each key pair is an account (an Eiger organisation); the others' printers come from Eiger directly.
+    m_others = std::make_shared<OtherAccountPrinters>(id(), [](nlohmann::json& data) {
+        std::vector<CloudPrinter> out;
+        for (const nlohmann::json& d : Eiger({data.value("access_key", std::string()), data.value("secret_key", std::string())}).devices()) {
+            auto str = [&d](const char* key) { return d.contains(key) && d[key].is_string() ? d[key].get<std::string>() : std::string(); };
+            CloudPrinter p;
+            p.id = str("id");
+            if (p.id.empty())
+                continue;
+            p.name                  = from_u8(str("name").empty() ? p.id : str("name"));
+            p.model                 = from_u8(str("device_type"));
+            const std::string state = str("state");
+            p.online                = !(state.empty() || state == "Offline" || state == "Disabled" || state == "Unknown");
+            p.status                = p.online ? from_u8(state) : _L("Offline");
+            out.push_back(std::move(p));
+        }
+        return out;
+    });
+    CloudAccountSet::Hooks hooks;
+    hooks.active_key   = [] { return Eiger::has_keys() ? read_markforged_settings().value("access_key", std::string()) : std::string(); };
+    hooks.active_label = [this] { return into_u8(account_name()); };
+    hooks.capture      = []() -> nlohmann::json {
+        const nlohmann::json s = read_markforged_settings();
+        return {{"access_key", s.value("access_key", std::string())}, {"secret_key", s.value("secret_key", std::string())}};
+    };
+    hooks.apply = [this](const nlohmann::json& data) {
+        nlohmann::json settings = read_markforged_settings();
+        if (!settings.is_object())
+            settings = nlohmann::json::object();
+        settings["access_key"] = data.value("access_key", std::string());
+        settings["secret_key"] = data.value("secret_key", std::string());
+        const bool ok          = write_markforged_settings(settings);
+        clear_printers();
+        m_others->invalidate();
+        return ok;
+    };
+    hooks.detach  = [this] { logout(); };
+    m_account_set = std::make_shared<CloudAccountSet>(id(), std::move(hooks));
+}
+
+void MarkforgedCloudProvider::refresh_printers(PrintersCallback done)
+{
+    PrinterAgentCloudProvider::refresh_printers([&](std::vector<CloudPrinter> printers, wxString error) {
+        printers = m_others->merge(std::move(printers), m_account_set, error);
+        done(std::move(printers), error);
+    });
+}
 
 bool MarkforgedCloudProvider::is_logged_in() const { return Eiger::has_keys(); }
 
@@ -568,9 +847,6 @@ void MarkforgedCloudProvider::logout()
 // ElegooCloudProvider
 // ---------------------------------------------------------------------------------------------
 
-ElegooCloudProvider::ElegooCloudProvider()
-    : PrinterAgentCloudProvider(ELEGOO_CLOUD_PROVIDER, "Elegoo", 20, "elegoo_cc2", {}, wxColour("#3A6FD8"))
-{}
 
 bool ElegooCloudProvider::is_logged_in() const { return ElegooCloud::instance().signed_in(); }
 
@@ -642,6 +918,99 @@ void ElegooCloudProvider::open_printer(wxWindow* parent, const std::string& prin
 // fetch outlasts that; overlapping fetches would pile up and could answer out of order.
 static std::atomic<bool>         s_elegoo_cloud_fetching{false};
 
+namespace {
+
+nlohmann::json elegoo_account_json(const ElegooCloudAccount& a)
+{
+    return {{"region", a.region},   {"access_token", a.access_token}, {"refresh_token", a.refresh_token}, {"access_expire_ms", a.access_expire_ms},
+            {"user_id", a.user_id}, {"nickname", a.nickname},         {"email", a.email},                 {"avatar", a.avatar}};
+}
+
+ElegooCloudAccount elegoo_account(const nlohmann::json& j)
+{
+    ElegooCloudAccount a;
+    a.region           = j.value("region", std::string("global"));
+    a.access_token     = j.value("access_token", std::string());
+    a.refresh_token    = j.value("refresh_token", std::string());
+    a.access_expire_ms = j.value("access_expire_ms", int64_t(0));
+    a.user_id          = j.value("user_id", std::string());
+    a.nickname         = j.value("nickname", std::string());
+    a.email            = j.value("email", std::string());
+    a.avatar           = j.value("avatar", std::string());
+    return a;
+}
+
+std::string elegoo_account_key(const ElegooCloudAccount& a) { return a.user_id.empty() ? a.email : a.user_id; }
+
+// One account's printers with their online state and status, through `cloud`. Blocking.
+std::vector<CloudPrinter> elegoo_printers(ElegooCloud& cloud, const std::string& provider)
+{
+    std::vector<CloudPrinter> out;
+    for (const ElegooCloudPrinter& p : cloud.printers()) {
+        // The device list carries no status. The report data does (1 idle, 2 printing), but it
+        // keeps the last state after the printer goes offline, so ask for the online state first.
+        const int    online = cloud.printer_online(p.serial);
+        const int    state  = online == 0 ? -1 : cloud.printer_state(p.serial);
+        CloudPrinter cp;
+        cp.provider_id = provider;
+        cp.id          = p.serial;
+        cp.name        = wxString::FromUTF8(p.name.empty() ? p.serial : p.name);
+        cp.model       = wxString::FromUTF8(p.model);
+        cp.online      = online != 0 && state >= 0;
+        cp.status      = online == 0 ? _L("Offline") : state == 2 ? _L("Printing") : state == 1 ? _L("Idle") : _L("Unknown");
+        out.push_back(std::move(cp));
+    }
+    return out;
+}
+
+} // namespace
+
+ElegooCloudProvider::ElegooCloudProvider()
+    : PrinterAgentCloudProvider(ELEGOO_CLOUD_PROVIDER, "Elegoo", 20, "elegoo_cc2", {}, wxColour("#3A6FD8"))
+{
+    const std::string provider = id();
+    // Another saved account's printers, with its own tokens; refreshed tokens go back to `data`.
+    m_others = std::make_shared<OtherAccountPrinters>(provider, [provider](nlohmann::json& data) {
+        std::unique_ptr<ElegooCloud> cloud = ElegooCloud::for_account(elegoo_account(data));
+        std::vector<CloudPrinter>    out;
+        try {
+            out = elegoo_printers(*cloud, provider);
+        } catch (...) {
+            data = elegoo_account_json(cloud->account());
+            throw;
+        }
+        data = elegoo_account_json(cloud->account());
+        return out;
+    });
+    CloudAccountSet::Hooks hooks;
+    hooks.active_key = [] {
+        ElegooCloud& cloud = ElegooCloud::instance();
+        return cloud.signed_in() ? elegoo_account_key(cloud.account()) : std::string();
+    };
+    hooks.active_label = [] { return ElegooCloud::instance().account_label(); };
+    hooks.capture      = []() -> nlohmann::json { return elegoo_account_json(ElegooCloud::instance().account()); };
+    hooks.apply        = [this](const nlohmann::json& data) {
+        const ElegooCloudAccount account = elegoo_account(data);
+        if (account.access_token.empty())
+            return false;
+        ElegooCloud::instance().set_account(account);
+        {
+            std::lock_guard<std::mutex> lock(s_elegoo_cloud_mutex);
+            s_elegoo_cloud_printers.clear();
+        }
+        clear_printers();
+        m_others->invalidate();
+        return true;
+    };
+    // Local only: ElegooCloud::sign_out() forgets the tokens without ending the session on Elegoo's
+    // side. The messaging session belongs to the account, so it is closed too.
+    hooks.detach = [] {
+        ElegooCloud::close_live_session_later();
+        ElegooCloud::instance().sign_out();
+    };
+    m_account_set = std::make_shared<CloudAccountSet>(provider, std::move(hooks));
+}
+
 static std::vector<CloudPrinter> merge_lan(std::vector<CloudPrinter> out, const std::vector<CloudPrinter>& lan)
 {
     // A LAN printer the account also lists shows once (the cloud entry, keyed by serial).
@@ -657,6 +1026,10 @@ static std::vector<CloudPrinter> merge_lan(std::vector<CloudPrinter> out, const 
 
 void ElegooCloudProvider::refresh_printers(PrintersCallback done)
 {
+    done = [done, others = m_others, set = m_account_set](std::vector<CloudPrinter> printers, wxString error) {
+        printers = others->merge(std::move(printers), set, error);
+        done(std::move(printers), error);
+    };
     // Printers on the local network, from the LAN agent.
     std::vector<CloudPrinter> lan;
     PrinterAgentCloudProvider::refresh_printers([&lan](std::vector<CloudPrinter> printers, wxString) { lan = std::move(printers); });
@@ -674,25 +1047,18 @@ void ElegooCloudProvider::refresh_printers(PrintersCallback done)
         return; // the fetch in flight answers with fresh data
     // The account's printers: blocking HTTPS, so off the GUI thread (the caller marshals the callback).
     const std::string provider = id();
-    std::thread([done, lan = std::move(lan), provider]() {
+    const std::string account  = elegoo_account_key(ElegooCloud::instance().account());
+    std::thread([done, lan = std::move(lan), provider, account]() {
         std::vector<CloudPrinter> out;
         wxString                  error;
         try {
-            for (const ElegooCloudPrinter& p : ElegooCloud::instance().printers()) {
-                // The device list carries no status. The report data does (1 idle, 2 printing), but it
-                // keeps the last state after the printer goes offline, so ask for the online state first.
-                const int    online = ElegooCloud::instance().printer_online(p.serial);
-                const int    state  = online == 0 ? -1 : ElegooCloud::instance().printer_state(p.serial);
-                CloudPrinter cp;
-                cp.provider_id = provider;
-                cp.id          = p.serial;
-                cp.name        = wxString::FromUTF8(p.name.empty() ? p.serial : p.name);
-                cp.model       = wxString::FromUTF8(p.model);
-                cp.online      = online != 0 && state >= 0;
-                cp.status      = online == 0 ? _L("Offline") : state == 2 ? _L("Printing") : state == 1 ? _L("Idle") : _L("Unknown");
-                out.push_back(std::move(cp));
-            }
+            out = elegoo_printers(ElegooCloud::instance(), provider);
             std::lock_guard<std::mutex> lock(s_elegoo_cloud_mutex);
+            // Another account became active meanwhile: these are no longer its printers.
+            if (account != elegoo_account_key(ElegooCloud::instance().account())) {
+                s_elegoo_cloud_fetching = false;
+                return;
+            }
             s_elegoo_cloud_printers = out;
         } catch (const ElegooAuthError& ex) {
             error = wxString::FromUTF8(ex.what());

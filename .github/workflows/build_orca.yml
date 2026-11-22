@@ -52,7 +52,7 @@ jobs:
           key: ${{ inputs.cache-key }}
           fail-on-cache-miss: true
 
-      - uses: lukka/get-cmake@latest
+      - uses: lukka/get-cmake@16e8153a8b4918849d92aad131befe67a3705daa # v4.5.0 (latest)
         with:
           cmakeVersion: "~4.3.0"  # use most recent 4.3.x version
           useLocalCache: true         # <--= Use the local cache (default is 'false').
@@ -78,7 +78,7 @@ jobs:
         id: ccache
         if: ${{ !inputs.macos-combine-only }}
         continue-on-error: true
-        uses: hendrikmuhs/ccache-action@v1.2.24
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: ${{ env.CCACHE_LEG }}
           max-size: 3G
@@ -356,33 +356,51 @@ jobs:
             retry xcrun stapler staple OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
 
+      # Forks have no Apple Developer ID, so the app is ad-hoc signed instead: Apple
+      # Silicon refuses to run unsigned code, and an ad-hoc signature lets the user
+      # allow the app once in System Settings > Privacy & Security.
       - name: Create DMG without notary
-        if: github.ref != 'refs/heads/main' && runner.os == 'macOS' && inputs.macos-combine-only
+        if: ${{ !(github.repository == 'OrcaSlicer/OrcaSlicer' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))) && runner.os == 'macOS' && inputs.macos-combine-only }}
         working-directory: ${{ github.workspace }}
         run: |
           # Load the `retry` and `create_dmg` helpers.
           source ${{ github.workspace }}/scripts/retry.sh
           source ${{ github.workspace }}/scripts/create_dmg.sh
-          mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_dmg
-          rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
-          cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer.app ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/
-          ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Applications
-          create_dmg "OrcaSlicer" ${{ github.workspace }}/build/universal/OrcaSlicer_dmg OrcaSlicer_Mac_universal_${{ env.ver }}.dmg
-          
-          # Create separate OrcaSlicer_profile_validator DMG if the app exists
-          if [ -f "${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app/Contents/MacOS/OrcaSlicer_profile_validator" ]; then
-            mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg
-            rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/*
-            cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/
-            ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/Applications
-            create_dmg "OrcaSlicer Profile Validator" ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
+          app_name=$(grep 'set(SLIC3R_APP_NAME' version.inc | cut -d '"' -f2)
+          dmg_dir=${{ github.workspace }}/build/universal/OrcaSlicer_dmg
+          mkdir -p "$dmg_dir"
+          rm -rf "$dmg_dir"/*
+          cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer.app "$dmg_dir/$app_name.app"
+          # Sign every nested Mach-O, then seal the bundle (codesign --deep cannot
+          # sign the bundled Python runtime).
+          find "$dmg_dir/$app_name.app" -type f -print0 |
+            xargs -0 file --no-pad --mime-type -- |
+            grep -v ' (for architecture ' |
+            grep ': application/x-mach-binary$' |
+            sed 's|: application/x-mach-binary$||' |
+            tr '\n' '\0' | xargs -0 codesign --force --sign -
+          codesign --force --sign - "$dmg_dir/$app_name.app"
+          codesign --verify --deep --strict --verbose=2 "$dmg_dir/$app_name.app"
+          # dmgbuild lays out the Finder window (app, arrow, Applications shortcut) without
+          # driving Finder, which CI runners cannot script. A plain DMG is the fallback.
+          dmg=OrcaSlicer_Mac_universal_${{ env.ver }}.dmg
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          if "$RUNNER_TEMP/dmgbuild/bin/pip" install -q dmgbuild==1.6.7 &&
+             "$RUNNER_TEMP/dmgbuild/bin/dmgbuild" -s scripts/dmg/settings.py \
+               -D app="$dmg_dir/$app_name.app" -D background=scripts/dmg/background.png \
+               "$app_name" "$dmg"; then
+            echo "Built $dmg with dmgbuild"
+          else
+            echo "::warning::dmgbuild failed; building a plain DMG."
+            ln -sfn /Applications "$dmg_dir/Applications"
+            create_dmg "$app_name" "$dmg_dir" "$dmg"
           fi
 
       # Delete the per-arch bundles only after signing/DMG creation succeeded, so a
       # failed run keeps them available for a re-run instead of forcing a full rebuild.
       - name: Delete intermediate per-arch artifacts
         if: success() && runner.os == 'macOS' && inputs.macos-combine-only
-        uses: geekyeggo/delete-artifact@v6
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6
         with:
           name: |
             OrcaSlicer_Mac_bundle_arm64_${{ github.sha }}
@@ -433,8 +451,7 @@ jobs:
 
       - name: setup MSVC
         if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v3
-
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
       # NSIS builds the installer. A pinned portable copy is kept in the Actions
       # cache, so most runs never download it, and a cache miss fetches the
       # release archive from SourceForge instead of going through the Chocolatey
@@ -531,7 +548,7 @@ jobs:
       - name: Authenticate to Google Cloud for code signing
         id: codesign_auth
         if: steps.codesign.outcome == 'success'
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.WINDOWS_SIGN_WIF_PROVIDER }}
           service_account: ${{ vars.WINDOWS_SIGN_SERVICE_ACCOUNT }}
@@ -595,7 +612,7 @@ jobs:
           $paths = @("$env:BUILD_DIR/OrcaSlicer")
           $validator = 'build/src/Release/OrcaSlicer_profile_validator.exe'
           if (Test-Path $validator) { $paths += $validator }
-          $installer = Get-ChildItem "$env:BUILD_DIR/OrcaSlicer_Windows_Installer_*.exe" | Select-Object -First 1
+          $installer = Get-ChildItem "$env:BUILD_DIR/UnifiedSlicer_Windows_Installer_*.exe" | Select-Object -First 1
           if ($installer) {
             $payload = Join-Path $env:RUNNER_TEMP 'installer-payload'
             & 'C:/Program Files/7-Zip/7z.exe' x -y "-o$payload" $installer.FullName | Out-Null
@@ -630,7 +647,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: OrcaSlicer_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}
-          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/OrcaSlicer*.exe
+          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/UnifiedSlicer_Windows_Installer_*.exe
+          if-no-files-found: error
 
       - name: Upload artifacts Win PDB
         if: runner.os == 'Windows' && inputs.arch != 'arm64' && !vars.SELF_HOSTED

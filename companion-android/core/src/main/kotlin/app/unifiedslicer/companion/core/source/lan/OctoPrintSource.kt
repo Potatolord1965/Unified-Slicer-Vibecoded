@@ -1,5 +1,8 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.source.FileBrowsable
+import app.unifiedslicer.companion.core.model.PrinterFile
+import app.unifiedslicer.companion.core.net.arr
 import app.unifiedslicer.companion.core.source.Controllable
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.camera.CameraCapable
@@ -23,7 +26,7 @@ import app.unifiedslicer.companion.core.source.SourceContext
 import okhttp3.MultipartBody
 import kotlinx.serialization.json.JsonElement
 
-class OctoPrintSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable {
+class OctoPrintSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable, FileBrowsable {
     override val via = "LAN · OctoPrint"
 
     override suspend fun read(): PrinterStatus {
@@ -55,10 +58,27 @@ class OctoPrintSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
         PrinterCommand.Stop -> post("/api/job", """{"command":"cancel"}""")
         is PrinterCommand.SetNozzle -> post("/api/printer/tool", """{"command":"target","targets":{"tool0":${command.celsius}}}""")
         is PrinterCommand.SetBed -> post("/api/printer/bed", """{"command":"target","target":${command.celsius}}""")
+        PrinterCommand.Home -> post("/api/printer/printhead", """{"command":"home","axes":["x","y","z"]}""")
+        is PrinterCommand.Move -> post("/api/printer/printhead", """{"command":"jog","${command.axis}":${command.mm}}""")
         is PrinterCommand.Light, is PrinterCommand.Speed -> throw java.io.IOException("Not available on OctoPrint from this app")
     }
 
     override suspend fun camera(deviceId: String): CameraFeed = CameraFeed.Http(resolve("/webcam/?action=snapshot"))
+
+    override suspend fun files(deviceId: String): List<PrinterFile> {
+        val out = mutableListOf<PrinterFile>()
+        fun walk(list: List<JsonElement>) {
+            for (f in list) when (f.str("type")) {
+                "folder" -> walk(f.arr("children").orEmpty())
+                "machinecode" -> f.str("path")?.let { out += PrinterFile(it, f.str("name") ?: it, f.long("size"), f.long("date")?.times(1000)) }
+            }
+        }
+        walk(get("/api/files/local?recursive=true").arr("files").orEmpty())
+        return out.sortedByDescending { it.modifiedAt ?: 0 }
+    }
+
+    override suspend fun printFile(deviceId: String, file: PrinterFile) =
+        post("/api/files/local/" + encodePath(file.path), """{"command":"select","print":true}""")
 
     fun parse(printer: JsonElement, job: JsonElement): PrinterStatus {
         val flags = printer.obj("state").obj("flags")

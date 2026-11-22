@@ -12,6 +12,15 @@ enum class PrinterState(val label: String, val active: Boolean) {
     FINISHED("Finished", false),
     FAILED("Failed", false),
     UNKNOWN("Unknown", false),
+    ;
+
+    /**
+     * Known to be between prints, so it takes moves and new prints. Never true for [UNKNOWN] or
+     * [OFFLINE]: a printer whose state isn't known may be printing. Sources map states they don't
+     * recognise to [UNKNOWN], and a print that is still winding down or waiting for the user to an
+     * active state, so [FAILED] only means "stopped".
+     */
+    val ready: Boolean get() = this == IDLE || this == FINISHED || this == FAILED
 }
 
 data class Temperature(val current: Double, val target: Double? = null)
@@ -42,7 +51,44 @@ data class PrinterStatus(
     val light: Boolean? = null,
     /** Bambu speed level 1..4. */
     val speedLevel: Int? = null,
+    /** Loaded filament: AMS / Canvas slots and the external spool, where the printer reports them. */
+    val filament: List<FilamentSlot> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
     val key: String get() = "$accountId/$deviceId"
 }
+
+/**
+ * One filament slot. [label] is what the maker's app shows ("A1", "Ext"), [color] is "#RRGGBB"
+ * or null when unknown, [remainPercent] is null when the printer does not measure it.
+ */
+data class FilamentSlot(
+    val label: String,
+    val type: String,
+    val color: String? = null,
+    val remainPercent: Int? = null,
+    val active: Boolean = false,
+    /** Empty slot: no spool loaded. */
+    val empty: Boolean = false,
+)
+
+/** A file stored on the printer (or its host), which can be printed again. */
+data class PrinterFile(
+    /** What the printer needs to print it, e.g. "folder/part.gcode". */
+    val path: String,
+    val name: String = path.substringAfterLast('/'),
+    val sizeBytes: Long? = null,
+    /** Epoch milliseconds. */
+    val modifiedAt: Long? = null,
+)
+
+/** One finished, failed or cancelled print from the printer's history. */
+data class PastPrint(
+    val name: String,
+    val state: PrinterState,
+    /** Epoch milliseconds. */
+    val startedAt: Long? = null,
+    val durationSeconds: Long? = null,
+    /** Shown instead of the state when the service has its own word for it. */
+    val note: String? = null,
+)

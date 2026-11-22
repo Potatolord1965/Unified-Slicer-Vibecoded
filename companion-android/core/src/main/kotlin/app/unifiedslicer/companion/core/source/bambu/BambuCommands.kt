@@ -1,5 +1,6 @@
 package app.unifiedslicer.companion.core.source.bambu
 
+import app.unifiedslicer.companion.core.source.motionGcode
 import app.unifiedslicer.companion.core.net.MqttLink
 import app.unifiedslicer.companion.core.net.long
 import app.unifiedslicer.companion.core.net.obj
@@ -39,9 +40,11 @@ class BambuCommands {
         val waiter = CompletableDeferred<JsonObject>()
         pending[seq] = waiter
         try {
-            link.publish("device/$serial/request", payload(command, seq).toString())
-            // Older firmware does not answer every command; silence counts as sent.
-            val reply = withTimeoutOrNull(4_000) { waiter.await() } ?: return
+            link.send("device/$serial/request", payload(command, seq).toString())
+            // Older firmware doesn't answer every command, so silence isn't a refusal, but it isn't
+            // success either: say so, so a move isn't simply sent again.
+            val reply = withTimeoutOrNull(6_000) { waiter.await() }
+                ?: throw IOException("Sent, but the printer didn't confirm it. Check its status before sending it again.")
             rejection(reply)?.let { throw IOException(it) }
         } finally {
             pending.remove(seq)
@@ -62,6 +65,7 @@ class BambuCommands {
                 is PrinterCommand.SetNozzle -> print("gcode_line", "M104 S${command.celsius}\n")
                 is PrinterCommand.SetBed -> print("gcode_line", "M140 S${command.celsius}\n")
                 is PrinterCommand.Speed -> print("print_speed", command.level.level.toString())
+                PrinterCommand.Home, is PrinterCommand.Move -> print("gcode_line", motionGcode(command) + "\n")
                 is PrinterCommand.Light -> buildJsonObject {
                     putJsonObject("system") {
                         put("sequence_id", seq); put("command", "ledctrl"); put("led_node", "chamber_light")

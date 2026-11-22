@@ -2,6 +2,8 @@
 list(APPEND SLIC3R_GUI_SOURCES
     GUI/DeviceHub/BuiltinCloudProviders.hpp
     GUI/DeviceHub/BuiltinCloudProviders.cpp
+    GUI/DeviceHub/CloudAccounts.hpp
+    GUI/DeviceHub/CloudAccounts.cpp
     GUI/DeviceHub/CloudPrinterProvider.hpp
     GUI/DeviceHub/CloudPrinterProvider.cpp
     GUI/DeviceHub/CloudPrinterProviderList.cpp

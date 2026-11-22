@@ -1,5 +1,6 @@
 package app.unifiedslicer.companion.core.source.creality
 
+import app.unifiedslicer.companion.core.source.motionGcode
 import app.unifiedslicer.companion.core.source.Controllable
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import kotlinx.serialization.json.putJsonObject
@@ -246,6 +247,7 @@ class CrealityCloudSource(override val account: CrealityAccount, private val ctx
                 is PrinterCommand.SetBed -> putJsonObject("bedTempControl") { put("num", 0); put("val", command.celsius) }
                 is PrinterCommand.Light -> put("lightSw", if (command.on) 1 else 0)
                 is PrinterCommand.Speed -> throw IOException("Not available on Creality printers from this app")
+                PrinterCommand.Home, is PrinterCommand.Move -> put("gcodeCmd", motionGcode(command))
             }
         }
 
@@ -269,7 +271,8 @@ class CrealityCloudSource(override val account: CrealityAccount, private val ctx
             2 -> PrinterState.FINISHED
             3, 4 -> PrinterState.FAILED
             5 -> PrinterState.PAUSED
-            else -> PrinterState.IDLE
+            0 -> PrinterState.IDLE
+            else -> PrinterState.UNKNOWN
         }
 
         /** Timeseries reply: {key: [{ts, value}]} (possibly in the result envelope) → {key: value}. */

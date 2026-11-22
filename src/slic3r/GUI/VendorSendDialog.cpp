@@ -28,6 +28,8 @@
 #include <wx/wrapsizer.h>
 
 #include "GUI_App.hpp"
+#include "slic3r/GUI/DeviceHub/CloudPrinterProvider.hpp"
+#include "MsgDialog.hpp"
 #include "I18N.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Preset.hpp"
@@ -52,6 +54,8 @@ static SendVendor vendor_from_name(std::string name)
         return SendVendor::Creality;
     if (name.find("markforged") != std::string::npos)
         return SendVendor::Markforged;
+    if (name.find("snapmaker") != std::string::npos)
+        return SendVendor::Snapmaker;
     return SendVendor::None;
 }
 
@@ -142,6 +146,19 @@ Theme theme_for(SendVendor vendor, bool dark)
         t.error       = wxColour("#D93025");
         t.track_off   = dark ? wxColour("#4A4A4A") : wxColour("#BDBDBD");
         t.radius      = 2;
+        break;
+    case SendVendor::Snapmaker: // Snapmaker Orca send page
+        t.title       = _L("Send Print Job");
+        t.bg          = dark ? wxColour("#1E1F22") : wxColour("#FFFFFF");
+        t.panel       = dark ? wxColour("#2A2C30") : wxColour("#F4F6F8");
+        t.text        = dark ? wxColour("#F0F0F0") : wxColour("#1F2329");
+        t.subtext     = dark ? wxColour("#9AA0A6") : wxColour("#6B7280");
+        t.border      = dark ? wxColour("#3A3D42") : wxColour("#DDE1E6");
+        t.accent      = wxColour("#0F8BD6");
+        t.accent_text = *wxWHITE;
+        t.error       = wxColour("#F04438");
+        t.track_off   = dark ? wxColour("#4A4D52") : wxColour("#C2C7CE");
+        t.radius      = 6;
         break;
     default:
         t.title       = _L("Print");
@@ -508,7 +525,7 @@ protected:
 private:
     std::string cfg_key(const std::string& key) const
     {
-        static const char* names[] = {"none", "bambu", "elegoo", "creality", "markforged"};
+        static const char* names[] = {"none", "bambu", "elegoo", "creality", "markforged", "snapmaker"};
         return std::string(names[static_cast<int>(m_vendor)]) + "_" + key;
     }
     std::string recall(const std::string& key, const std::string& def) const
@@ -593,6 +610,14 @@ private:
             m_account_btn->SetCursor(wxCursor(wxCURSOR_HAND));
             m_account_btn->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent&) { on_account_link(); });
             footer->Add(m_account_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+            // Several accounts of the service: pick the one to print with.
+            m_switch_btn = make_text(this, _L("Switch account"), m_theme.accent);
+            m_switch_btn->SetCursor(wxCursor(wxCURSOR_HAND));
+            m_switch_btn->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent& e) {
+                e.Skip();
+                CallAfter([this] { on_switch_account(); });
+            });
+            footer->Add(m_switch_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
             update_account();
         }
         footer->AddStretchSpacer();
@@ -659,13 +684,53 @@ private:
         const bool in = m_backend.signed_in();
         m_account->SetLabel(in ? wxString::Format(_L("Signed in as %s"), m_backend.account_label()) : _L("Not signed in"));
         m_account_btn->SetLabel(in ? _L("Sign out") : _L("Sign in"));
+        CloudPrinterProviderPtr provider = account_provider();
+        m_switch_btn->Show(in && provider && provider->accounts().size() > 1);
         Layout();
+    }
+
+    CloudPrinterProviderPtr account_provider() const
+    {
+        const std::string id = m_backend.provider_id();
+        if (id.empty())
+            return nullptr;
+        CloudPrinterProviders::register_builtin();
+        CloudPrinterProviderPtr provider = CloudPrinterProviders::get(id);
+        return provider && provider->supports_multiple_accounts() ? provider : nullptr;
+    }
+
+    void on_switch_account()
+    {
+        CloudPrinterProviderPtr provider = account_provider();
+        if (!provider)
+            return;
+        std::string chosen;
+        wxMenu      menu;
+        for (const CloudAccountInfo& a : provider->accounts()) {
+            wxMenuItem* item = menu.AppendCheckItem(wxID_ANY, a.label);
+            item->Check(a.active);
+            const std::string key = a.key;
+            menu.Bind(wxEVT_MENU, [&chosen, key](wxCommandEvent&) { chosen = key; }, item->GetId());
+        }
+        PopupMenu(&menu, m_switch_btn->GetPosition() + wxPoint(0, m_switch_btn->GetSize().y));
+        if (chosen.empty())
+            return;
+        if (!provider->switch_account(chosen))
+            MessageDialog(this, _L("This account's sign-in no longer works. Sign out of it and sign in again."), provider->display_name(),
+                          wxOK | wxICON_WARNING)
+                .ShowModal();
+        update_account();
+        load_printers();
     }
 
     void on_account_link()
     {
         if (m_backend.signed_in()) {
-            m_backend.sign_out();
+            // Several accounts: the provider signs this one out and makes the next one active.
+            if (CloudPrinterProviderPtr provider = account_provider())
+                provider->sign_out();
+            else
+                m_backend.sign_out();
             update_account();
             if (m_backend.has_local_printers())
                 load_printers();
@@ -1136,6 +1201,7 @@ private:
     wxStaticText*         m_error{nullptr};
     wxStaticText*         m_account{nullptr};
     wxStaticText*         m_account_btn{nullptr};
+    wxStaticText*         m_switch_btn{nullptr};
     FlatButton*           m_print_btn{nullptr};
     FlatButton*           m_send_btn{nullptr};
     Toggle*               m_upload_and_print{nullptr};

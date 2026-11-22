@@ -21,12 +21,16 @@
 #include "I18N.hpp"
 #include "VendorSendDialog.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Config.hpp"
 #include "slic3r/Utils/CrealityCloud.hpp"
 #include "slic3r/Utils/CrealityPrint.hpp"
 #include "slic3r/Utils/ElegooCloud.hpp"
 #include "slic3r/Utils/MarkforgedEiger.hpp"
+#include "slic3r/Utils/CloudProvider.hpp"
+#include "slic3r/Utils/SnapmakerCloud.hpp"
 
 #include <boost/filesystem.hpp>
+#include <wx/app.h>
 #include <wx/choice.h>
 #include <wx/dialog.h>
 #include <wx/utils.h>
@@ -79,6 +83,7 @@ public:
         m_has_lan = host_type_of(cfg) == htElegooLink && !print_host_of(cfg).empty();
     }
 
+    std::string provider_id() const override { return "elegoo"; }
     bool     needs_sign_in() const override { return true; }
     bool     signed_in() const override { return ElegooCloud::instance().signed_in(); }
     bool     has_local_printers() const override { return m_has_lan; }
@@ -415,6 +420,7 @@ public:
         m_has_lan = host_type_of(cfg) == htCrealityPrint && !print_host_of(cfg).empty();
     }
 
+    std::string provider_id() const override { return "creality"; }
     bool     needs_sign_in() const override { return true; }
     bool     signed_in() const override { return CrealityCloud::SessionStore::get().valid(); }
     bool     has_local_printers() const override { return m_has_lan; }
@@ -626,6 +632,195 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------
+// Snapmaker: the LAN printer set in the preset, and the U1 printers of the Snapmaker ID account.
+// ---------------------------------------------------------------------------------------------
+
+// Uploads to Snapmaker's storage and sends the printer the print command over Snapmaker's broker,
+// the way Snapmaker Orca sends a cloud print.
+// extended_info: sm_id (account device id), sm_sn, sm_name, sm_firmware.
+class SnapmakerCloudHost : public PrintHost
+{
+public:
+    const char* get_name() const override { return "Snapmaker Cloud"; }
+    bool        test(wxString& msg) const override
+    {
+        std::vector<SnapmakerCloud::Device> devices;
+        std::string                         error;
+        const int code = SnapmakerCloud::Client(SnapmakerCloud::SessionStore::get()).list_devices(devices, error);
+        msg            = wxString::FromUTF8(error);
+        return code == SnapmakerCloud::CODE_OK;
+    }
+    wxString get_test_ok_msg() const override { return _L("Connected to Snapmaker Cloud."); }
+    wxString get_test_failed_msg(wxString& msg) const override { return wxString::Format("%s: %s", _L("Could not connect to Snapmaker Cloud"), msg); }
+    bool     has_auto_discovery() const override { return false; }
+    bool     can_test() const override { return true; }
+    PrintHostPostUploadActions get_post_upload_actions() const override { return PrintHostPostUploadAction::StartPrint; }
+    std::string                get_host() const override { return "api.snapmaker.com"; }
+    bool                       is_cloud() const override { return true; }
+
+    bool upload(PrintHostUpload u, ProgressFn progress_fn, ErrorFn error_fn, InfoFn info_fn) const override
+    {
+        namespace SC = SnapmakerCloud;
+        const std::string dummy;
+        bool              cancelled = false;
+        auto              report    = [&](int pct, const std::string& status) {
+            if (!status.empty() && info_fn)
+                info_fn(L"set_status", wxString::FromUTF8(status));
+            if (progress_fn)
+                progress_fn(Http::Progress(0, 0, 100, size_t(std::max(0, pct)), dummy), cancelled);
+        };
+        auto fail = [&](const std::string& msg) {
+            if (error_fn && !cancelled)
+                error_fn(wxString::FromUTF8(msg));
+            return false;
+        };
+        const SC::Session session = SC::SessionStore::get();
+        if (!session.valid())
+            return fail(_u8L("Sign in to Snapmaker first."));
+        SC::Device device;
+        device.id       = u.extended("sm_id");
+        device.sn       = u.extended("sm_sn");
+        device.name     = u.extended("sm_name");
+        device.firmware = u.extended("sm_firmware");
+        SC::Client   client(session);
+        SC::Uploaded uploaded;
+        std::string  error;
+        report(0, _u8L("Uploading to Snapmaker Cloud…"));
+        int code = client.upload(u.source_path.string(), u.upload_path.filename().string(), device.id,
+                                 [&](int pct) { report(pct * 9 / 10, std::string()); }, [&] { return cancelled; }, uploaded, error);
+        if (code == SC::CODE_CANCELLED)
+            return false;
+        if (code != SC::CODE_OK)
+            return fail(code == SC::CODE_UNAUTHORIZED ? _u8L("Snapmaker session expired. Sign in again.") : error);
+        const bool start = u.post_action == PrintHostPostUploadAction::StartPrint;
+        report(92, start ? _u8L("Starting print…") : _u8L("Sending to the printer…"));
+        code = client.start_print(device, uploaded, start, 0, error);
+        if (code != SC::CODE_OK)
+            return fail(error.empty() ? _u8L("The printer did not accept the print.") : error);
+        report(100, start ? _u8L("Print started") : _u8L("Sent to the printer"));
+        return true;
+    }
+};
+
+class SnapmakerBackend : public VendorSendBackend
+{
+public:
+    explicit SnapmakerBackend(const DynamicPrintConfig& cfg) : m_config(cfg) { m_has_lan = !print_host_of(cfg).empty(); }
+
+    bool needs_sign_in() const override { return true; }
+    bool signed_in() const override { return SnapmakerCloud::SessionStore::get().valid(); }
+    bool has_local_printers() const override { return m_has_lan; }
+    bool sign_in(wxWindow*) override
+    {
+        if (wxGetApp().getAgent() == nullptr)
+            return false;
+        // Snapmaker ID signs in through its own web page, in the shared login window.
+        wxGetApp().ShowUserLogin(true, SNAPMAKER_CLOUD_PROVIDER);
+        // The window hands the token over after it closes; let that run before checking.
+        wxTheApp->ProcessPendingEvents();
+        return signed_in();
+    }
+    void     sign_out() override { SnapmakerCloud::SessionStore::clear(); }
+    wxString account_label() const override
+    {
+        const SnapmakerCloud::Session s = SnapmakerCloud::SessionStore::get();
+        if (!s.valid())
+            return _L("not signed in");
+        return wxString::FromUTF8(!s.nickname.empty() ? s.nickname : !s.account.empty() ? s.account : s.user_id);
+    }
+
+    std::vector<SendPrinter> printers() override
+    {
+        std::vector<SendPrinter> out;
+        if (m_has_lan) {
+            SendPrinter sp;
+            sp.id     = LAN_ID;
+            sp.name   = _L("Snapmaker printer");
+            sp.detail = wxString::FromUTF8(print_host_of(m_config));
+            sp.group  = _L("LAN");
+            sp.status = _L("Ready");
+            out.push_back(std::move(sp));
+        }
+        std::string                   cloud_error;
+        const SnapmakerCloud::Session session = SnapmakerCloud::SessionStore::get();
+        if (session.valid()) {
+            std::vector<SnapmakerCloud::Device> devices;
+            std::string                         error;
+            const int code = SnapmakerCloud::Client(session).list_devices(devices, error);
+            if (code != SnapmakerCloud::CODE_OK)
+                cloud_error = code == SnapmakerCloud::CODE_UNAUTHORIZED ? _u8L("Snapmaker session expired. Sign in again.") : error;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_devices.clear();
+            for (const SnapmakerCloud::Device& d : devices) {
+                SendPrinter sp;
+                sp.id     = "cloud:" + d.sn;
+                sp.name   = wxString::FromUTF8(d.name.empty() ? d.model : d.name);
+                sp.detail = wxString::FromUTF8(d.model.empty() ? d.sn : d.model);
+                sp.model  = d.model;
+                sp.group  = _L("Snapmaker Cloud");
+                sp.online = d.online;
+                sp.status = d.online ? _L("Online") : _L("Offline");
+                out.push_back(std::move(sp));
+                m_devices[d.sn] = d;
+            }
+        }
+        if (out.empty() && !cloud_error.empty())
+            throw std::runtime_error(cloud_error);
+        if (out.empty() && !session.valid())
+            throw std::runtime_error(_u8L("Sign in to Snapmaker, or set the printer's IP address in the printer settings (Connection)."));
+        return out;
+    }
+
+    std::vector<SendOption> options(const SendPrinter&) const override { return {}; }
+    bool                    has_filament_mapping() const override { return false; }
+
+    PrintHostJob make_job(const SendRequest& req, const boost::filesystem::path&, wxString& error) override
+    {
+        PrintHostJob job;
+        if (req.printer_id == LAN_ID) {
+            job = PrintHostJob(&m_config);
+            if (job.empty()) {
+                error = _L("The printer's network settings are incomplete.");
+                return job;
+            }
+        } else {
+            SnapmakerCloud::Device d;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                auto it = m_devices.find(req.printer_id.rfind("cloud:", 0) == 0 ? req.printer_id.substr(6) : req.printer_id);
+                if (it == m_devices.end()) {
+                    error = _L("Choose a printer.");
+                    return job;
+                }
+                d = it->second;
+            }
+            if (!d.online) {
+                error = _L("The printer is offline.");
+                return job;
+            }
+            job.printhost                 = std::make_unique<SnapmakerCloudHost>();
+            job.upload_data.extended_info = {{"sm_id", d.id}, {"sm_sn", d.sn}, {"sm_name", d.name}, {"sm_firmware", d.firmware}};
+        }
+        job.upload_data.upload_path = boost::filesystem::path(req.file_name.ToUTF8().data());
+        job.upload_data.post_action = action_for(req.start_print);
+        return job;
+    }
+
+    // Only the U1 prints through Snapmaker's cloud; the other Snapmaker printers keep the usual send dialog.
+    static bool applies_to(const DynamicPrintConfig& cfg)
+    {
+        const auto* model = cfg.option<ConfigOptionString>("printer_model");
+        return model != nullptr && model->value.find("U1") != std::string::npos;
+    }
+
+private:
+    DynamicPrintConfig                            m_config;
+    bool                                          m_has_lan{false};
+    std::mutex                                    m_mutex;
+    std::map<std::string, SnapmakerCloud::Device> m_devices;
+};
+
+// ---------------------------------------------------------------------------------------------
 // Markforged: organization printers through the Eiger cloud API.
 // ---------------------------------------------------------------------------------------------
 
@@ -659,6 +854,7 @@ class MarkforgedBackend : public VendorSendBackend
 public:
     explicit MarkforgedBackend(const DynamicPrintConfig& cfg) : m_keys(Eiger::keys_for(&cfg)) {}
 
+    std::string provider_id() const override { return "markforged"; }
     bool     needs_sign_in() const override { return true; }
     bool     signed_in() const override { return !m_keys.empty(); }
     bool     sign_in(wxWindow* parent) override
@@ -803,6 +999,9 @@ void register_builtin_vendor_send_backends()
     register_vendor_send_backend(SendVendor::Elegoo, [](const DynamicPrintConfig& cfg) { return std::make_shared<ElegooBackend>(cfg); });
     register_vendor_send_backend(SendVendor::Creality, [](const DynamicPrintConfig& cfg) { return std::make_shared<CrealityBackend>(cfg); });
     register_vendor_send_backend(SendVendor::Markforged, [](const DynamicPrintConfig& cfg) { return std::make_shared<MarkforgedBackend>(cfg); });
+    register_vendor_send_backend(SendVendor::Snapmaker, [](const DynamicPrintConfig& cfg) -> std::shared_ptr<VendorSendBackend> {
+        return SnapmakerBackend::applies_to(cfg) ? std::make_shared<SnapmakerBackend>(cfg) : nullptr;
+    });
 }
 
 }} // namespace Slic3r::GUI

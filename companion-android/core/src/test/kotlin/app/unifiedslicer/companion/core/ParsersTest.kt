@@ -66,6 +66,18 @@ class ParsersTest {
         assertEquals(PrinterState.FINISHED, ElegooStatus.state(1, 2077))
         assertEquals(PrinterState.PAUSED, ElegooStatus.state(2, 2502))
         assertEquals(PrinterState.PRINTING, ElegooStatus.state(2, 2075))
+        assertEquals(PrinterState.PRINTING, ElegooStatus.state(2, 2503))
+        assertEquals(PrinterState.FAILED, ElegooStatus.state(2, 2504))
+        // A code this app doesn't know may be a busy printer: never idle.
+        assertEquals(PrinterState.UNKNOWN, ElegooStatus.state(7, 0))
+        assertEquals(PrinterState.UNKNOWN, ElegooStatus.state(null, null))
+    }
+
+    @Test fun onlyKnownIdleStatesTakeMovesAndPrints() {
+        assertEquals(
+            setOf(PrinterState.IDLE, PrinterState.FINISHED, PrinterState.FAILED),
+            PrinterState.entries.filter { it.ready }.toSet(),
+        )
     }
 
     @Test fun elegooLoginReport() {
@@ -82,12 +94,16 @@ class ParsersTest {
         val t = CrealityCloudSource.parseTelemetry(parseJson("""{"nozzleTemp":[{"ts":1,"value":"210"}],"state":[{"ts":1,"value":1}],"x":{"a":1}}""")!!)
         assertEquals(setOf("nozzleTemp", "state"), t.keys)
         assertEquals(PrinterState.PAUSED, CrealityCloudSource.state(5))
+        assertEquals(PrinterState.IDLE, CrealityCloudSource.state(0))
+        assertEquals(PrinterState.UNKNOWN, CrealityCloudSource.state(9))
     }
 
     @Test fun eigerStates() {
         assertEquals(PrinterState.PREPARING, EigerSource.state("Printing", "heating"))
-        assertEquals(PrinterState.FAILED, EigerSource.state("Out of Material", null))
+        assertEquals(PrinterState.PAUSED, EigerSource.state("Out of Material", null))
         assertEquals(PrinterState.IDLE, EigerSource.state("Ready", null))
+        assertEquals(PrinterState.OFFLINE, EigerSource.state("Disabled", null))
+        assertEquals(PrinterState.UNKNOWN, EigerSource.state("Some new state", null))
     }
 
     @Test fun moonraker() {

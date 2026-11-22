@@ -31,6 +31,15 @@ A printer's page has Pause / Resume / Stop, tap-to-set nozzle and bed temperatur
 
 The camera shows only for printers added by address on the local network, and connects after a tap on Watch: Klipper / OctoPrint / PrusaLink snapshots, Bambu A1 and P1 (JPEG over TLS on port 6000), Bambu X1 (RTSP over TLS on port 322; needs LAN Only Liveview on). Bambu, Elegoo and Creality cloud video run on closed services and are not available.
 
+## Filament, files, history and moving the head
+
+- **Filament:** Bambu AMS (and AMS HT) trays plus the external spool, from the `ams` / `vt_tray` report; Elegoo Canvas trays from `canvas_info` in the status. The tray feeding the nozzle is outlined.
+- **Move:** Home and relative X/Y/Z steps (0.1 / 1 / 10 mm) on an idle printer. Raw G-code where the printer takes it (Bambu `gcode_line`, Creality `gcodeCmd`, Moonraker), Elegoo methods 1026 / 1027, OctoPrint's printhead API. PrusaLink has no motion API.
+- **Files on the printer:** Moonraker, OctoPrint and PrusaLink list their stored print files and start one.
+- **History:** Bambu cloud task list (`/v1/user-service/my/tasks`) and Moonraker's job history.
+
+Elegoo light and speed (methods 1029 / 1031) are not wired: their parameters are not published.
+
 ## Sending prints
 
 A phone cannot slice, so the app sends printer-ready files (G-code): one downloaded in the in-app MakerWorld / Nexprint / Creality Cloud browser, or one picked from the phone.

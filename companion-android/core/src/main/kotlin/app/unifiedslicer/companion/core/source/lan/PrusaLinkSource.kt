@@ -1,5 +1,7 @@
 package app.unifiedslicer.companion.core.source.lan
 
+import app.unifiedslicer.companion.core.source.FileBrowsable
+import app.unifiedslicer.companion.core.model.PrinterFile
 import app.unifiedslicer.companion.core.source.Controllable
 import app.unifiedslicer.companion.core.source.PrinterCommand
 import app.unifiedslicer.companion.core.camera.CameraCapable
@@ -26,7 +28,7 @@ import app.unifiedslicer.companion.core.source.SourceContext
 import kotlinx.serialization.json.JsonElement
 
 /** Prusa printers through PrusaLink's v1 API. */
-class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable {
+class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSource(account, ctx), PrintCapable, Controllable, CameraCapable, FileBrowsable {
     override val via = "LAN · PrusaLink"
 
     override suspend fun read(): PrinterStatus {
@@ -38,11 +40,7 @@ class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
     override suspend fun print(deviceId: String, job: PrintJob, progress: SendProgress) {
         progress.update(0, "Uploading to the printer…")
         val size = job.file.length().coerceAtLeast(1)
-        // The printer's own storage is "usb" on MK4/XL/MINI and "local" on PrusaLink for the MK3.
-        val storage = runCatching {
-            get("/api/v1/storage").arr("storage_list").orEmpty()
-                .firstOrNull { it.bool("available") != false && it.bool("read_only") != true }?.str("path")?.trim('/')
-        }.getOrNull() ?: "usb"
+        val storage = storage()
         val path = "/api/v1/files/$storage/" + java.net.URLEncoder.encode(job.name, "UTF-8").replace("+", "%20")
         val req = request(path)
             .header("Print-After-Upload", "?1")
@@ -66,6 +64,26 @@ class PrusaLinkSource(account: LanPrinter, ctx: SourceContext) : HttpPrinterSour
 
     override suspend fun camera(deviceId: String): CameraFeed =
         CameraFeed.Http(resolve("/api/v1/cameras/snap"), if (account.secret.isBlank()) emptyMap() else mapOf("X-Api-Key" to account.secret.trim()))
+
+    /** The printer's own storage: "usb" on MK4/XL/MINI, "local" on PrusaLink for the MK3. */
+    private suspend fun storage(): String = runCatching {
+        get("/api/v1/storage").arr("storage_list").orEmpty()
+            .firstOrNull { it.bool("available") != false && it.bool("read_only") != true }?.str("path")?.trim('/')
+    }.getOrNull() ?: "usb"
+
+    override suspend fun files(deviceId: String): List<PrinterFile> {
+        val storage = storage()
+        return get("/api/v1/files/$storage").arr("children").orEmpty()
+            .filter { it.str("type") == "PRINT_FILE" }
+            .mapNotNull { f ->
+                val name = f.str("name") ?: return@mapNotNull null
+                PrinterFile("$storage/$name", f.str("display_name") ?: name, f.long("size"), f.long("m_timestamp")?.times(1000))
+            }.sortedByDescending { it.modifiedAt ?: 0 }
+    }
+
+    override suspend fun printFile(deviceId: String, file: PrinterFile) {
+        ctx.http.fetchText(request("/api/v1/files/" + encodePath(file.path)).post(jsonBody("")).build())
+    }
 
     fun parse(s: JsonElement, file: JsonElement?): PrinterStatus {
         val p = s.obj("printer")

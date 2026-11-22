@@ -17,6 +17,8 @@ struct BambuSession
     std::string refresh_token;
     std::string user_id;
     std::string name;
+    // The whole "user_login" message, to sign the plugin in to this account again (account switching).
+    std::string login_message;
 };
 void         remember_bambu_login(const std::string& user_login_message);
 void         forget_bambu_login();
@@ -37,13 +39,16 @@ public:
     Server(const Server&)            = delete;
     Server& operator=(const Server&) = delete;
 
-    // Seals `payload` with a new key and listens on a free port for `lifetime`. Any earlier offer
-    // is withdrawn. False with `error` when nothing could be served (no network, no port).
+    // Seals `payload` with a new key and listens on a free port for `lifetime`, answering only
+    // phones on this computer's private networks. Any earlier offer is withdrawn. False with
+    // `error` when nothing could be served (no private network, no port).
     bool        start(const std::string& payload, std::chrono::seconds lifetime, std::string& error);
     void        stop();
     State       state() const;
     // unifiedslicer://signin?v=1&h=<IPv4s>&p=<port>&i=<id>&k=<key>
     std::string qr_text() const;
+    // The address of the device that took the offer, once Delivered.
+    std::string delivered_to() const;
 
 private:
     struct Impl;

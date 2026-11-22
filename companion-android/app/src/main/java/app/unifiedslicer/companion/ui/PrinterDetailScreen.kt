@@ -54,6 +54,8 @@ fun PrinterDetailScreen(
     onCommand: suspend (PrinterCommand) -> String? = { null },
     /** The camera panel, for printers that have one. */
     camera: (@Composable () -> Unit)? = null,
+    onFiles: (() -> Unit)? = null,
+    onHistory: (() -> Unit)? = null,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -137,6 +139,9 @@ fun PrinterDetailScreen(
             }
             Spacer(Modifier.height(10.dp))
             DeviceControls(p, controls, accent, commands)
+            FilamentPanel(p.filament, accent)
+            MovePanel(p, controls, accent, commands)
+            MoreLinks(onFiles, onHistory)
             Panel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     if (p.layer != null && p.totalLayers != null) InfoRow("Layer", "${p.layer} / ${p.totalLayers}")

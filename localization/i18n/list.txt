@@ -47,6 +47,7 @@ src/slic3r/GUI/DeviceCore/DevNozzleRackCtrl.cpp
 src/slic3r/GUI/DeviceCore/DevUtil.h
 src/slic3r/GUI/DeviceCore/DevUtil.cpp
 src/slic3r/GUI/DeviceHub/BuiltinCloudProviders.cpp
+src/slic3r/GUI/DeviceHub/CloudPrinterProvider.cpp
 src/slic3r/GUI/DeviceHub/DeviceHubPanel.cpp
 src/slic3r/GUI/DeviceHub/LocalPrintersProvider.cpp
 src/slic3r/GUI/DeviceTab/uiAmsHumidityPopup.h
@@ -298,6 +299,8 @@ src/slic3r/Utils/MarkforgedEiger.cpp
 src/slic3r/Utils/CrealityPrint.cpp
 src/slic3r/Utils/CrealityCloudPrinterAgent.cpp
 src/slic3r/Utils/CrealityCloudServiceAgent.cpp
+src/slic3r/Utils/SnapmakerCloudPrinterAgent.cpp
+src/slic3r/Utils/SnapmakerCloudServiceAgent.cpp
 src/slic3r/Utils/PrintHost.cpp
 src/slic3r/GUI/Jobs/OAuthJob.cpp
 src/slic3r/GUI/Gizmos/GLGizmoBrimEars.cpp

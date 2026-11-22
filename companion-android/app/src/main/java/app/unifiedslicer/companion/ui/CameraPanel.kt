@@ -47,7 +47,7 @@ import androidx.media3.ui.PlayerView
 import app.unifiedslicer.companion.core.camera.CameraFeed
 import app.unifiedslicer.companion.core.camera.frames
 import app.unifiedslicer.companion.core.model.PrinterStatus
-import app.unifiedslicer.companion.core.net.insecureSocketFactory
+import app.unifiedslicer.companion.core.net.bambuPrinterSocketFactory
 import app.unifiedslicer.companion.data.PrinterRepository
 import app.unifiedslicer.companion.ui.theme.LocalStudio
 import kotlinx.coroutines.CancellationException
@@ -93,7 +93,7 @@ fun CameraPanel(repo: PrinterRepository, p: PrinterStatus, accent: Color) {
                         style = MaterialTheme.typography.bodySmall, color = Color.White,
                     )
                     current == null -> CircularProgressIndicator(Modifier.size(28.dp), color = accent, strokeWidth = 3.dp)
-                    current is CameraFeed.BambuRtsp -> RtspView(current.url) { error = it }
+                    current is CameraFeed.BambuRtsp -> RtspView(current.url, current.serial) { error = it }
                     else -> FrameView(repo, current, accent) { error = it }
                 }
             }
@@ -127,17 +127,17 @@ private fun FrameView(repo: PrinterRepository, feed: CameraFeed, accent: Color, 
     else Image(shown, "Printer camera", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
 }
 
-/** Bambu X1 live view: RTSP over TLS with the printer's self-signed certificate, on the local network only. */
+/** Bambu X1 live view: RTSP over TLS with the printer's own certificate, on the local network only. */
 @OptIn(UnstableApi::class)
 @Composable
-private fun RtspView(url: String, onError: (String) -> Unit) {
+private fun RtspView(url: String, serial: String, onError: (String) -> Unit) {
     val context = LocalContext.current
     val player = remember(url) {
         ExoPlayer.Builder(context).build().apply {
             setMediaSource(
                 RtspMediaSource.Factory()
                     .setForceUseRtpTcp(true)
-                    .setSocketFactory(insecureSocketFactory())
+                    .setSocketFactory(bambuPrinterSocketFactory(serial))
                     .createMediaSource(MediaItem.fromUri(url))
             )
             volume = 0f

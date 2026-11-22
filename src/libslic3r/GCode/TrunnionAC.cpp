@@ -1,6 +1,7 @@
 #include "TrunnionAC.hpp"
 
 #include <algorithm>
+#include <bitset>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -14,7 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
 namespace Slic3r {
 namespace TrunnionAC {
@@ -106,24 +107,42 @@ struct Material
     static constexpr double VOXEL  = 1.;   // dedupe grid for the envelope checks, mm
     static constexpr double BLOCK  = 8.;   // bucket for the envelope checks' spatial lookup, mm
     static constexpr double COLUMN = 2.;   // column grid for the swing, mm
+    static constexpr int    SIDE   = 8;    // voxels along a block's edge (BLOCK / VOXEL)
 
-    struct Sample { Vec3 p; uint32_t section; };
-    std::unordered_set<int64_t>                     voxels;
-    std::unordered_map<int64_t, std::vector<Sample>> blocks;
+    // A dense 150 mm part lays millions of samples, so a sample is kept in single precision (about
+    // 0.03 um at 500 mm, far below the envelope's margins) and a block marks its own voxels.
+    struct Sample
+    {
+        float    x, y, z;
+        uint32_t section;
+        Vec3     p() const { return { double(x), double(y), double(z) }; }
+    };
+    struct Block
+    {
+        std::bitset<SIDE * SIDE * SIDE> voxels;
+        std::vector<Sample>             samples;
+    };
+    std::unordered_map<int64_t, Block> blocks;
     struct Column { Vec3 top, bottom; };
     // The highest and lowest sample of every vertical column. Any other sample of a column lies
     // between those two up to the column width, so the swing only has to look at these: the machine Z
     // of a rigidly moved point is linear in the point, and its maximum over a set is reached on the
     // set's convex hull.
-    std::unordered_map<int64_t, Column>             columns;
+    std::unordered_map<int64_t, Column> columns;
 
-    bool empty() const { return voxels.empty(); }
+    bool empty() const { return blocks.empty(); }
 
     void add(const Vec3 &p, uint32_t section)
     {
-        if (! voxels.insert(key3(cell(p.x, VOXEL), cell(p.y, VOXEL), cell(p.z, VOXEL))).second)
+        static_assert(int(BLOCK / VOXEL) == SIDE, "a block holds SIDE voxels along each edge");
+        const int vx = cell(p.x, VOXEL), vy = cell(p.y, VOXEL), vz = cell(p.z, VOXEL);
+        const int bx = cell(p.x, BLOCK), by = cell(p.y, BLOCK), bz = cell(p.z, BLOCK);
+        Block    &block = blocks[key3(bx, by, bz)];
+        const int bit   = ((vx - bx * SIDE) * SIDE + (vy - by * SIDE)) * SIDE + (vz - bz * SIDE);
+        if (block.voxels.test(size_t(bit)))
             return;
-        blocks[key3(cell(p.x, BLOCK), cell(p.y, BLOCK), cell(p.z, BLOCK))].push_back({ p, section });
+        block.voxels.set(size_t(bit));
+        block.samples.push_back({ float(p.x), float(p.y), float(p.z), section });
         auto [it, fresh] = columns.try_emplace(key2(cell(p.x, COLUMN), cell(p.y, COLUMN)), Column{ p, p });
         if (! fresh) {
             if (p.z > it->second.top.z)    it->second.top = p;
@@ -485,11 +504,26 @@ private:
     std::vector<Vec3>   table_ring;
 
     bool all_known() const { return known[0] && known[1] && known[2]; }
-    bool identity() const { return cur.a == 0. && cur.c == 0.; }
+    // Upright: C is homed to any multiple of 360 degrees, so a section that turned C past 180 ends at
+    // 360, not 0.
+    bool identity() const { return cur.a == 0. && std::abs(std::remainder(cur.c, 360.)) < 1e-9; }
 
     [[noreturn]] void fail(size_t line_no, const std::string &msg) const
     {
         throw std::runtime_error("line " + std::to_string(line_no) + ": " + msg);
+    }
+
+    // The slicer checked the part's own height, not where the table's tilt puts a point of it: a move
+    // in a tilted section that needs the nozzle above the printable height is refused. (Below Z 0 is
+    // not: with the pivot at the bed surface, the low side of a tilted table is under it.)
+    void check_machine_z(size_t line_no, const Vec3 &m) const
+    {
+        if (M.max_z > 0. && m.z > M.max_z + 1e-6) {
+            std::ostringstream s;
+            s << "the section at A" << fmt(cur.a, 3) << (M.kind == Kind::AB ? " B" : " C") << fmt(cur.c, 3) << " needs the nozzle at Z"
+              << fmt(m.z, 2) << ", above the printable height " << fmt(M.max_z, 2) << " (part plus table tilt too tall)";
+            fail(line_no, s.str());
+        }
     }
 
     void emit(const std::string &s) { out << s << '\n'; }
@@ -617,6 +651,7 @@ private:
                 emit_arc(p, before, after, lays);
             } else {
                 const Vec3 target_m = to_machine(M, cur, after);
+                check_machine_z(p.line_no, target_m);
                 if (p.abs_xyz) {
                     emit_line(p, code_of(p) + axes_words(target_m, p, false) + other_words(p, "XYZABCIJ"));
                 } else {
@@ -689,14 +724,16 @@ private:
 
     void emit_arc(const Parsed &p, const Vec3 &a, const Vec3 &b, bool lays)
     {
-        if (std::abs(cur.a) < 1e-9 && ! p.has('R')) {
-            // A = 0: the arc stays in a horizontal plane, only turned by C.
+        if (M.kind == Kind::AC && std::abs(cur.a) < 1e-9 && ! p.has('R')) {
+            // A = 0: the arc stays in a horizontal plane, only turned by C. (On an A/B bed the second
+            // axis tilts about Y, so its arcs are split into lines below.)
             const Word *I = p.word('I'), *J = p.word('J');
             const double i0 = I ? I->value : 0., j0 = J ? J->value : 0.;
             const double sc = std::sin(rad(cur.c)), cc = std::cos(rad(cur.c));
             if (! p.abs_xyz)
                 fail(p.line_no, "relative arcs in a turned section are not supported");
             const Vec3 target_m = to_machine(M, cur, b);
+            check_machine_z(p.line_no, target_m); // a helix only climbs to its end
             std::string s = code_of(p) + axes_words(target_m, p, false) + " I" + fmt(cc * i0 - sc * j0, XYZ_DIGITS) +
                             " J" + fmt(sc * i0 + cc * j0, XYZ_DIGITS) + other_words(p, "XYZABCIJ");
             emit_line(p, s);
@@ -715,7 +752,9 @@ private:
         for (int i = 0; i < n; ++ i) {
             Parsed seg = p;
             seg.words.clear();
-            std::string s = "G1" + axes_words(to_machine(M, cur, pts[i]), seg, false);
+            const Vec3 point_m = to_machine(M, cur, pts[i]);
+            check_machine_z(p.line_no, point_m);
+            std::string s = "G1" + axes_words(point_m, seg, false);
             if (E != nullptr) {
                 // Cumulative rounding so the segments add up to exactly the arc's extrusion.
                 const double e_cum = std::round(e_total * (i + 1) / n * 1e5) / 1e5;
@@ -789,9 +828,9 @@ private:
                 for (int k = cell(lo[2], B); k <= cell(hi[2], B); ++ k) {
                     auto it = material.blocks.find(key3(i, j, k));
                     if (it == material.blocks.end()) continue;
-                    for (const Material::Sample &smp : it->second) {
+                    for (const Material::Sample &smp : it->second.samples) {
                         if (int64_t(smp.section) == skip) continue;
-                        const Vec3  &p  = smp.p;
+                        const Vec3   p  = smp.p();
                         const Vec3   q  = to_machine(M, o, p) - tip;
                         const double dz = q.z;
                         if (dz <= M.env_eps) continue;

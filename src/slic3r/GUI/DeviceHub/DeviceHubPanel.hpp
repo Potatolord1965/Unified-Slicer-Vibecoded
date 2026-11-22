@@ -3,7 +3,9 @@
 #include "CloudPrinterProvider.hpp"
 
 #include <map>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <wx/colour.h>
@@ -52,6 +54,7 @@ private:
     void rebuild_cards();
     void apply_view();
     void open_printer(const std::string& provider_id, const std::string& printer_id);
+    void show_accounts_menu();
     void on_activated(wxDataViewEvent& evt);
 
     CloudPrinterProviderPtr m_provider; // null: all providers
@@ -66,6 +69,7 @@ private:
     wxDataViewListCtrl* m_list{nullptr};
     wxScrolledWindow*   m_cards{nullptr};
     bool                m_card_view{false};
+    bool                m_account_column{false};
     wxStaticText*       m_empty{nullptr};
     wxTimer             m_timer;
     wxColour            m_accent;
@@ -74,6 +78,9 @@ private:
     std::map<std::string, wxString>                  m_errors;   // by provider id
     std::vector<std::pair<std::string, std::string>> m_rows;     // provider id, printer id per list row
     std::vector<CloudPrinter>                        m_carded;   // printers the cards show, to rebuild only on change
+    // Expires with the page. Printer lists can arrive on worker threads, which may copy a weak_ptr
+    // but not a wxWeakRef.
+    std::shared_ptr<bool>                            m_alive{std::make_shared<bool>(true)};
 };
 
 // The Device tab: a rail of service buttons on the left, the selected service's page on the right.

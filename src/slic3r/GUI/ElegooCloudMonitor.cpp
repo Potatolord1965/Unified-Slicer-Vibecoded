@@ -511,8 +511,11 @@ private:
     {
         event("onRtmMessage", json{{"message", message}});
         // A status push carries only what changed: merge it into the full status, as elegoo-link does.
-        const json j = json::parse(message, nullptr, false);
-        if (j.is_object() && j.value("method", 0) == 6000 && j.contains("result") && j["result"].is_object()) {
+        // Not json::value(): a "method" of another type would throw out of this CallAfter.
+        const json j      = json::parse(message, nullptr, false);
+        const auto method = j.find("method");
+        if (method != j.end() && method->is_number_integer() && method->get<long long>() == 6000 && j.contains("result") &&
+            j["result"].is_object()) {
             if (!m_last_status.is_object())
                 m_last_status = json::object();
             m_last_status.merge_patch(j["result"]);
@@ -735,12 +738,8 @@ wxWindow* create_printer_view(wxWindow* parent, const std::string& serial)
     return new ElegooCloudStatusView(parent, serial);
 }
 
-// Ends the account's messaging session once no printer page uses it. Logging out blocks briefly,
-// so never on the GUI thread.
-void close_session_later()
-{
-    std::thread([]() { ElegooCloud::instance().close_live_session(); }).detach();
-}
+// Ends the account's messaging session once no printer page uses it.
+void close_session_later() { ElegooCloud::close_live_session_later(); }
 
 // Used without a Device tab: one window at a time (the cloud allows one messaging session).
 wxWeakRef<wxDialog> s_window;

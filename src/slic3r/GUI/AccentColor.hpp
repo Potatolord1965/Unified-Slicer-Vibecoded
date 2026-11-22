@@ -72,6 +72,7 @@ inline wxColour brand_for_vendor(const std::string &vendor)
     if (vendor == "Elegoo")     return wxColour("#3A6FD8");
     if (vendor == "Creality")   return wxColour("#D8762C");
     if (vendor == "Markforged") return wxColour("#8B8F95");
+    if (vendor == "Snapmaker")  return wxColour("#0F8BD6");
     if (vendor == "Unlayered")  return wxColour("#7A5CC4");
     return wxColour();
 }
