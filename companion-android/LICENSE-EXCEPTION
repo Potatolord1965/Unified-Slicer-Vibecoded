@@ -1,0 +1,10 @@
+Additional permission under GNU AGPL version 3 section 7
+
+Unified Monitor (the contents of this companion-android directory) is licensed under the GNU Affero
+General Public License, version 3 (see ../LICENSE.txt).
+
+If you modify this program, or any covered work, by linking or combining it with the Agora RTM SDK
+(io.agora:agora-rtm, or a modified version of that library), containing parts covered by the terms
+of Agora's license, the licensors of this program grant you additional permission to convey the
+resulting work. Corresponding Source for a non-source form of such a combination shall not include
+the source code for the parts of the Agora RTM SDK used as well as that of the covered work.

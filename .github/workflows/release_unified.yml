@@ -152,5 +152,7 @@ jobs:
 
           **Windows:** run \`UnifiedSlicer-$VER-win64-setup.exe\`. It installs to Program Files with Start menu and desktop shortcuts, and uninstalls from Settings > Apps. Windows SmartScreen may warn that the app is unrecognised: click More info > Run anyway. The \`win64.zip\` is a portable copy (unzip and run \`unified-slicer.exe\`) and is what the in-app updater downloads.
 
-          **macOS:** open \`UnifiedSlicer-$VER-mac-universal.dmg\` and drag the app onto Applications. The app is not notarized, so the first time macOS blocks it: open System Settings > Privacy & Security and click Open Anyway."
+          **macOS:** open \`UnifiedSlicer-$VER-mac-universal.dmg\` and drag the app onto Applications. The app is not notarized, so the first time macOS blocks it: open System Settings > Privacy & Security and click Open Anyway.
+
+          Unified Slicer is unofficial free software, provided as is, with no warranty. It is not affiliated with or endorsed by OrcaSlicer, Bambu Lab, Elegoo, Creality, Markforged, Snapmaker or Unlayered; their names and trademarks belong to their owners. Source code: https://github.com/$REPO/tree/$SHA"
           fi
