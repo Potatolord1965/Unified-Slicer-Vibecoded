@@ -1,0 +1,73 @@
+name: Companion iOS app
+
+on:
+  push:
+    branches: [main]
+    paths: ["companion-ios/**", ".github/workflows/companion_ios.yml"]
+  pull_request:
+    paths: ["companion-ios/**", ".github/workflows/companion_ios.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: companion-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: companion-ios
+    steps:
+      - uses: actions/checkout@v5
+      - name: Core tests
+        working-directory: companion-ios/Core
+        run: swift test
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      # No Apple signing identity here: the app is built unsigned and signed on install
+      # (AltStore, Sideloadly or Xcode, with the installer's own Apple ID).
+      - name: Build the app
+        run: |
+          set -o pipefail
+          xcodebuild -project UnifiedMonitor.xcodeproj -scheme UnifiedMonitor -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tee build.log | grep -E "error:|warning: .*(deprecated|will never be executed)|BUILD" || true
+          test -d build/Build/Products/Release-iphoneos/UnifiedMonitor.app
+      - name: Show build errors
+        if: failure()
+        run: grep -E "error:" build.log | head -100 || true
+      - name: Package the unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/UnifiedMonitor.app Payload/
+          zip -qry UnifiedMonitor-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UnifiedMonitor-ios-unsigned
+          path: companion-ios/UnifiedMonitor-unsigned.ipa
+
+  # Keeps one always-current download link.
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: UnifiedMonitor-ios-unsigned
+      - name: Update the companion-ios-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete companion-ios-latest --yes --cleanup-tag || true
+          gh release create companion-ios-latest UnifiedMonitor-unsigned.ipa --prerelease --target "$GITHUB_SHA" \
+            --title "Unified Monitor (iOS) – latest" \
+            --notes "iOS companion app built from $GITHUB_SHA. The IPA is unsigned: install it with AltStore or Sideloadly, which sign it with your own Apple ID (see companion-ios/README.md). Unofficial free software, provided as is, with no warranty; not affiliated with or endorsed by any printer maker. Source: https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA/companion-ios"

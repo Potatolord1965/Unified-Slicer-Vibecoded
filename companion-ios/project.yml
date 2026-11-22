@@ -1,0 +1,96 @@
+# XcodeGen spec: `xcodegen generate` writes UnifiedMonitor.xcodeproj (not checked in).
+name: UnifiedMonitor
+options:
+  bundleIdPrefix: app.unifiedslicer
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: en
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+packages:
+  UnifiedCore:
+    path: Core
+  # Elegoo's cloud messaging (the same SDK the Android app and Elegoo's own apps use).
+  AgoraRTM:
+    url: https://github.com/AgoraIO/AgoraRtm_Apple
+    exactVersion: "2.2.8"
+targets:
+  UnifiedMonitor:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: App
+    dependencies:
+      - package: UnifiedCore
+      - package: AgoraRTM
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.unifiedslicer.monitor
+        PRODUCT_NAME: UnifiedMonitor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Unified Monitor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Scans the sign-in code Unified Slicer shows on your computer.
+        NSLocalNetworkUsageDescription: Reaches your printers and your computer on this network.
+        # Printers on the local network only speak plain HTTP.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - app.unifiedslicer.monitor.refresh
+        CFBundleURLTypes:
+          - CFBundleURLName: app.unifiedslicer.signin
+            CFBundleURLSchemes:
+              - unifiedslicer
+        LSSupportsOpeningDocumentsInPlace: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Sliced print file
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - app.unifiedslicer.gcode
+              - app.unifiedslicer.bgcode
+              - app.unifiedslicer.3mf
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: app.unifiedslicer.gcode
+            UTTypeDescription: G-code
+            UTTypeConformsTo: [public.data, public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [gcode, gco, g]
+          - UTTypeIdentifier: app.unifiedslicer.bgcode
+            UTTypeDescription: Binary G-code
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [bgcode]
+          - UTTypeIdentifier: app.unifiedslicer.3mf
+            UTTypeDescription: 3MF print project
+            UTTypeConformsTo: [public.data, public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [3mf]
