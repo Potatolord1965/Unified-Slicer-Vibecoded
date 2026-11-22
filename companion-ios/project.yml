@@ -16,7 +16,7 @@ packages:
   # Elegoo's cloud messaging (the same SDK the Android app and Elegoo's own apps use).
   AgoraRTM:
     url: https://github.com/AgoraIO/AgoraRtm_Apple
-    exactVersion: "2.2.8"
+    exactVersion: "2.3.1"
 targets:
   UnifiedMonitor:
     type: application
