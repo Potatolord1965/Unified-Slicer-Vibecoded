@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstring>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -323,37 +324,42 @@ void SnapmakerCloudPrinterAgent::status_loop(std::string dev_id, uint64_t genera
     auto stale     = [this, generation] { return generation != m_status_generation.load(); };
     bool connected = false;
     while (!stale()) {
-        const SC::Session session = SC::SessionStore::get();
-        SC::Device        device;
-        // Refresh the device record each round, since it carries the online flag.
-        {
-            std::lock_guard<std::recursive_mutex> lock(m_mutex);
-            m_devices.erase(dev_id);
-        }
-        if (session.valid() && find_device(dev_id, device)) {
-            json status = json::object();
-            if (device.online) {
-                std::string error;
-                if (rpc(dev_id, SC::rpc_request(0, "printer.objects.query", status_query()), status, std::chrono::seconds(10), error) != SC::CODE_OK)
-                    BOOST_LOG_TRIVIAL(info) << "SnapmakerCloud: status of " << dev_id << " not available: " << error;
+        SC::Device device;
+        // An unexpected reply must not end the thread: it would take the app down with it.
+        try {
+            const SC::Session session = SC::SessionStore::get();
+            // Refresh the device record each round, since it carries the online flag.
+            {
+                std::lock_guard<std::recursive_mutex> lock(m_mutex);
+                m_devices.erase(dev_id);
             }
-            if (stale())
-                break;
-            if (!connected) {
-                connected = true;
-                OnLocalConnectedFn   local;
-                OnPrinterConnectedFn printer;
-                {
-                    std::lock_guard<std::recursive_mutex> lock(m_mutex);
-                    local   = m_on_local_connect;
-                    printer = m_on_printer_connected;
+            if (session.valid() && find_device(dev_id, device)) {
+                json status = json::object();
+                if (device.online) {
+                    std::string error;
+                    if (rpc(dev_id, SC::rpc_request(0, "printer.objects.query", status_query()), status, std::chrono::seconds(10), error) != SC::CODE_OK)
+                        BOOST_LOG_TRIVIAL(info) << "SnapmakerCloud: status of " << dev_id << " not available: " << error;
                 }
-                if (local)
-                    post([local, dev_id] { local(ConnectStatusOk, dev_id, "0"); });
-                if (printer)
-                    post([printer, dev_id] { printer(dev_id); });
+                if (stale())
+                    break;
+                if (!connected) {
+                    connected = true;
+                    OnLocalConnectedFn   local;
+                    OnPrinterConnectedFn printer;
+                    {
+                        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+                        local   = m_on_local_connect;
+                        printer = m_on_printer_connected;
+                    }
+                    if (local)
+                        post([local, dev_id] { local(ConnectStatusOk, dev_id, "0"); });
+                    if (printer)
+                        post([printer, dev_id] { printer(dev_id); });
+                }
+                dispatch_message(dev_id, SC::status_payload(device, status).dump());
             }
-            dispatch_message(dev_id, SC::status_payload(device, status).dump());
+        } catch (const std::exception& e) {
+            BOOST_LOG_TRIVIAL(error) << "SnapmakerCloud: status of " << dev_id << " failed: " << e.what();
         }
         wait_for(device.online ? STATUS_INTERVAL : OFFLINE_INTERVAL, stale);
     }

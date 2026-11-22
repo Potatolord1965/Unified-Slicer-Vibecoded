@@ -29,6 +29,13 @@ body
 	height: 15%;
 }
 
+#Disclaimer
+{
+	padding:0mm 20mm 6mm 20mm;
+	font-size: 3mm;
+	color: #909090;
+}
+
 #BtnArea
 {
 	align-items: center;

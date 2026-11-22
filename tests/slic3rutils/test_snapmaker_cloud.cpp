@@ -27,6 +27,18 @@ TEST_CASE("Snapmaker ID token is read from the sign-in redirect", "[SnapmakerClo
     CHECK(SC::token_from_callback_body("not json").empty());
 }
 
+TEST_CASE("Snapmaker sign-in tokens are taken only from Snapmaker pages", "[SnapmakerCloud]")
+{
+    CHECK(SC::sign_in_region("https://id.snapmaker.com/?token=t") == SC::Region::Global);
+    CHECK(SC::sign_in_region("https://SNAPMAKER.com/") == SC::Region::Global);
+    CHECK(SC::sign_in_region("https://api.snapmaker.cn/api/oauth2/callback/x") == SC::Region::China);
+    CHECK_FALSE(SC::sign_in_region("https://evil.example/?next=snapmaker.cn&token=t").has_value());
+    CHECK_FALSE(SC::sign_in_region("https://notsnapmaker.com/?token=t").has_value());
+    CHECK_FALSE(SC::sign_in_region("https://id.snapmaker.com.evil.example/?token=t").has_value());
+    CHECK_FALSE(SC::sign_in_region("https://id.snapmaker.com@evil.example/?token=t").has_value());
+    CHECK_FALSE(SC::sign_in_region("http://id.snapmaker.com/?token=t").has_value());
+}
+
 TEST_CASE("Snapmaker API envelope and device list", "[SnapmakerCloud]")
 {
     json        data;
@@ -129,6 +141,11 @@ TEST_CASE("Snapmaker printer status maps to the device panel", "[SnapmakerCloud]
     CHECK(status["print"]["gcode_state"] == "RUNNING");
     CHECK(status["print"]["mc_percent"] == 50);
     CHECK(status["print"]["mc_remaining_time"] == 10);
+
+    // A field of an unexpected type reads as missing instead of throwing.
+    const json odd = SC::status_payload(device, json::parse(R"({"status":{"print_stats":{"state":["printing"],"filename":7}}})"));
+    CHECK(odd["print"]["gcode_state"] == "IDLE");
+    CHECK(odd["print"]["subtask_name"] == "7");
 }
 
 TEST_CASE("MQTT packets encode and decode", "[SnapmakerMqtt]")

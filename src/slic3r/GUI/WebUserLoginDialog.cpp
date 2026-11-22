@@ -20,6 +20,7 @@
 #include "slic3r/Utils/SnapmakerCloud.hpp"
 #include "libslic3r_version.h"
 
+#include <optional>
 #include <string>
 #include <wx/panel.h>
 #include <wx/gdicmn.h>
@@ -295,11 +296,14 @@ void ZUserLogin::check_token_redirect(const wxString &url)
 {
     if (m_token_handled || !m_cloud_agent || m_cloud_agent->get_id() != SNAPMAKER_CLOUD_PROVIDER)
         return;
-    const std::string u     = into_u8(url);
-    const bool        china = u.find("snapmaker.cn") != std::string::npos;
+    const std::string u = into_u8(url);
+    // Only Snapmaker's own pages hand over a token, and the page's host gives the region.
+    const auto region = SnapmakerCloud::sign_in_region(u);
+    if (!region)
+        return;
     const std::string token = SnapmakerCloud::token_from_url(u);
     if (!token.empty()) {
-        finish_token_login(token, china);
+        finish_token_login(token, *region == SnapmakerCloud::Region::China);
         return;
     }
     // The OAuth callback page shows {"data":{"access_token":...}} as its body: hand it back through the title.
@@ -370,10 +374,12 @@ void ZUserLogin::OnTitleChanged(wxWebViewEvent &evt)
     // SetTitle(evt.GetString());
     // wxLogMessage("%s", "Title changed; title='" + evt.GetString() + "'");
     const wxString title = evt.GetString();
-    if (!m_token_handled && title.StartsWith("SMOAUTH:")) {
+    if (!m_token_handled && m_cloud_agent && m_cloud_agent->get_id() == SNAPMAKER_CLOUD_PROVIDER && title.StartsWith("SMOAUTH:")) {
+        // Any page can set this title, so the token counts only on a Snapmaker page.
+        const auto region = SnapmakerCloud::sign_in_region(into_u8(m_browser->GetCurrentURL()));
         const std::string token = SnapmakerCloud::token_from_callback_body(into_u8(title.Mid(8)));
-        if (!token.empty())
-            finish_token_login(token, into_u8(m_browser->GetCurrentURL()).find("snapmaker.cn") != std::string::npos);
+        if (region && !token.empty())
+            finish_token_login(token, *region == SnapmakerCloud::Region::China);
     }
 }
 
