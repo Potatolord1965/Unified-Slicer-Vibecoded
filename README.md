@@ -9,13 +9,16 @@ OctoPrint or custom machine, plus non-planar printing.
 
 </div>
 
-Unified Slicer is a personal fork of [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) 2.5.0. It
+Unified Slicer is a modified version of [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) 2.5.0,
+changed in 2026 by the Unified Slicer contributors. It
 keeps everything OrcaSlicer does and adds the parts that normally need a separate vendor app:
 printing to each brand's printers, a Device tab that switches between their clouds, non-planar
 slicing from [Unlayered Slicer](https://github.com/Unlayered3D/Unlayered-Slicer), and filament tracking.
 
-> Unified Slicer is not affiliated with OrcaSlicer, Bambu Lab, Elegoo, Creality, Markforged or
-> Unlayered. All names and trademarks belong to their owners.
+> Unified Slicer is unofficial free software, provided as is, with no warranty. It is not affiliated
+> with or endorsed by OrcaSlicer, Bambu Lab, Elegoo, Creality, Markforged, Snapmaker or Unlayered;
+> their names and trademarks belong to their owners. Vendor cloud features are unofficial and used at
+> your own risk. See [PRIVACY.md](PRIVACY.md) for what the app sends and where.
 
 ## What it adds to OrcaSlicer
 
@@ -89,6 +92,8 @@ Plugins in `resources/plugins/` are copied into your data folder (`orca_plugins/
 
 ## License
 
+- The Android companion app in `companion-android/` is under the same license, with one added
+  permission to use the Agora RTM SDK (see `companion-android/LICENSE-EXCEPTION`).
 - Unified Slicer, like OrcaSlicer, is licensed under the **GNU Affero General Public License,
   version 3**. If you use any part of it, even behind a web server, your software must be released
   under the same license.

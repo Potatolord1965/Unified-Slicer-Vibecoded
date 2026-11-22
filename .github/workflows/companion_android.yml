@@ -82,4 +82,4 @@ jobs:
           gh release delete companion-latest --yes --cleanup-tag || true
           gh release create companion-latest UnifiedMonitor.apk --prerelease --target "$GITHUB_SHA" \
             --title "Unified Monitor (Android) – latest" \
-            --notes "Android companion app built from $GITHUB_SHA. Open this page on your phone, tap UnifiedMonitor.apk, and allow installing from your browser."
+            --notes "Android companion app built from $GITHUB_SHA. Open this page on your phone, tap UnifiedMonitor.apk, and allow installing from your browser. Unofficial free software, provided as is, with no warranty; not affiliated with or endorsed by any printer maker. Source: https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA/companion-android"
