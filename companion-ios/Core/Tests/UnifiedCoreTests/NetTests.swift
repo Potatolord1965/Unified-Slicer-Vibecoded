@@ -79,7 +79,12 @@ final class NetTests: XCTestCase {
         // The middle is raw DEFLATE.
         let deflated = data.subdata(in: 10..<(data.count - 8))
         var out = Data()
-        let filter = try InputFilter(.decompress, using: .zlib, readingFrom: deflated)
+        var offset = 0
+        let filter = try InputFilter<Data>(.decompress, using: .zlib) { length in
+            let end = min(offset + length, deflated.count)
+            defer { offset = end }
+            return deflated.subdata(in: offset..<end)
+        }
         while let chunk = try filter.readData(ofLength: 65536), !chunk.isEmpty { out.append(chunk) }
         XCTAssertEqual(String(decoding: out, as: UTF8.self), text)
     }

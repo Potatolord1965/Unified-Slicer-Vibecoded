@@ -1,6 +1,6 @@
 import Foundation
 
-public final class OctoPrintSource: HTTPPrinterSource, PrintCapable, Controllable, CameraCapable, FileBrowsable {
+public final class OctoPrintSource: HTTPPrinterSource, PrintCapable, Controllable, CameraCapable, FileBrowsable, @unchecked Sendable {
     override var via: String { "LAN · OctoPrint" }
 
     override init(_ printer: LanPrinter, _ ctx: SourceContext) { super.init(printer, ctx) }

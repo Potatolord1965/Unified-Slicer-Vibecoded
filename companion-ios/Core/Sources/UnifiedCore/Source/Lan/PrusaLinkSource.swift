@@ -1,7 +1,7 @@
 import Foundation
 
 /// Prusa printers through PrusaLink's v1 API.
-public final class PrusaLinkSource: HTTPPrinterSource, PrintCapable, Controllable, CameraCapable, FileBrowsable {
+public final class PrusaLinkSource: HTTPPrinterSource, PrintCapable, Controllable, CameraCapable, FileBrowsable, @unchecked Sendable {
     override var via: String { "LAN · PrusaLink" }
 
     override init(_ printer: LanPrinter, _ ctx: SourceContext) { super.init(printer, ctx) }

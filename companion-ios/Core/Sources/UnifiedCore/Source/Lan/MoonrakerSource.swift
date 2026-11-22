@@ -1,7 +1,7 @@
 import Foundation
 
 /// Klipper through Moonraker's HTTP API.
-public final class MoonrakerSource: HTTPPrinterSource, PrintCapable, Controllable, CameraCapable, FileBrowsable, HistoryCapable {
+public final class MoonrakerSource: HTTPPrinterSource, PrintCapable, Controllable, CameraCapable, FileBrowsable, HistoryCapable, @unchecked Sendable {
     override var via: String { "LAN · Moonraker" }
 
     override init(_ printer: LanPrinter, _ ctx: SourceContext) { super.init(printer, ctx) }
