@@ -68,7 +68,7 @@ Needs JDK 17+ and the Android SDK (API 36).
 
 The GitHub workflow `companion_android.yml` builds the APK on every change and, on `main`, publishes it as the `companion-latest` release.
 
-The APK is signed with `app/sideload.keystore`, which is committed so every build installs over the last one. It identifies this project's builds, not a person; anyone with the repository can sign with it.
+The release APK is signed with the key in the repository secrets (`COMPANION_KEYSTORE_BASE64`), so every release installs over the last one. The package name is `app.unifiedslicer.monitor`, registered for Android developer verification with that key's SHA-256 fingerprint. Builds before 1.5 used `app.unifiedslicer.companion`; uninstall that app and install the new one.
 
 ## Notes
 

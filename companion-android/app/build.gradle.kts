@@ -11,11 +11,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "app.unifiedslicer.companion"
+        applicationId = "app.unifiedslicer.monitor"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
         // The Elegoo messaging SDK ships native code; phones are ARM.
         ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
     }
