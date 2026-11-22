@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -280,6 +281,17 @@ std::string token_from_callback_body(const std::string& body)
     if (!j.is_object() || !j.contains("data") || !j["data"].is_object())
         return {};
     return json_string(j["data"], "access_token");
+}
+
+std::optional<Region> sign_in_region(const std::string& url)
+{
+    const std::string host = Http::https_host(url);
+    auto              on   = [&host](const std::string& site) { return host == site || boost::ends_with(host, "." + site); };
+    if (on("snapmaker.com"))
+        return Region::Global;
+    if (on("snapmaker.cn"))
+        return Region::China;
+    return std::nullopt;
 }
 
 std::map<std::string, std::string> headers(const Session& session)
@@ -655,7 +667,7 @@ json status_payload(const Device& device, const json& status)
     const json  display = objects.is_object() ? objects.value("display_status", json::object()) : json::object();
     const json  nozzle  = objects.is_object() ? objects.value("extruder", json::object()) : json::object();
     const json  bed     = objects.is_object() ? objects.value("heater_bed", json::object()) : json::object();
-    const std::string state = stats.is_object() ? stats.value("state", std::string()) : std::string();
+    const std::string state = json_string(stats, "state");
 
     json print;
     print["command"]             = "push_status";
@@ -669,7 +681,7 @@ json status_payload(const Device& device, const json& status)
     const float elapsed          = number(stats, "print_duration");
     const float progress         = number(display, "progress");
     print["mc_remaining_time"]   = progress > 0.01f ? int(elapsed / progress * (1.f - progress) / 60.f) : 0;
-    const std::string file       = stats.is_object() ? stats.value("filename", std::string()) : std::string();
+    const std::string file       = json_string(stats, "filename");
     print["subtask_name"]        = file;
     print["gcode_file"]          = file;
     // The printer keeps its own storage; report it present so the send dialog does not block on it.
@@ -755,15 +767,19 @@ int PrinterLink::request(json request, json& reply, std::chrono::milliseconds ti
             continue; // a status push, or an answer to someone else's request
         if (r.contains("error") && !r["error"].is_null()) {
             const json& e = r["error"];
-            error         = e.is_object() ? e.value("message", std::string("the printer refused the request")) : e.dump();
+            error         = e.is_object() ? json_string(e, "message") : e.dump();
+            if (error.empty())
+                error = "the printer refused the request";
             return CODE_PRINTER;
         }
         error.clear();
         reply = r.value("result", json::object());
         // Snapmaker's file commands answer with a state.
-        const std::string state = reply.is_object() ? reply.value("state", std::string()) : std::string();
+        const std::string state = json_string(reply, "state");
         if (state == "error" || state == "busy") {
-            error = reply.value("message", state == "busy" ? std::string("the printer is busy") : std::string("the printer refused the request"));
+            error = json_string(reply, "message");
+            if (error.empty())
+                error = state == "busy" ? "the printer is busy" : "the printer refused the request";
             return CODE_PRINTER;
         }
         return CODE_OK;

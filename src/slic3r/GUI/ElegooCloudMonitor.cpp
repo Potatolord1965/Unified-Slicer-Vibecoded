@@ -58,7 +58,8 @@ wxString state_text(const std::string& state)
     if (state == "PREPARE") return _L("Preparing");
     if (state == "FINISH") return _L("Finished");
     if (state == "FAILED") return _L("Failed");
-    return _L("Idle");
+    if (state == "IDLE") return _L("Idle");
+    return _L("Unknown");
 }
 
 wxString temp_text(double current, double target)

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <boost/filesystem/operations.hpp>
 #include <cassert>
+#include <cctype>
 #include <cstdlib>
 #include <curl/curlver.h>
 #include <fstream>
@@ -1080,6 +1081,19 @@ std::string Http::get_host_header_value(const std::string &url)
     std::string host = get_host_from_url(url, &port);
     if (!port.empty())
         host += ":" + port;
+    return host;
+}
+
+std::string Http::https_host(const std::string &url)
+{
+    static const std::string scheme = "https://";
+    if (url.compare(0, scheme.size(), scheme) != 0)
+        return {};
+    std::string host = url.substr(scheme.size(), url.find_first_of("/?#", scheme.size()) - scheme.size());
+    if (host.find('@') != std::string::npos)
+        return {};
+    host = host.substr(0, host.find(':'));
+    std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return char(std::tolower(c)); });
     return host;
 }
 

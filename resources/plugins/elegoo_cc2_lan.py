@@ -392,16 +392,19 @@ def gcode_state(status: dict) -> str:
             return "PAUSE"
         if sub == 2077:
             return "FINISH"
-        if sub in (2503, 2504):
+        if sub == 2504:
             return "FAILED"
         if sub in (1045, 1096, 1405, 1906, 1041, 2801, 2802, 2901, 2902):
             return "PREPARE"
-        return "RUNNING"
+        return "RUNNING"  # 2503 "Stopping" still moves, so it stays printing until 2504 "Stopped"
+    if st == 1:
+        return "FINISH" if sub == 2077 else "IDLE"
     if st == 14:
         return "FAILED"
-    if st == 0:
-        return "PREPARE"
-    return "IDLE"
+    # 0 is starting up. Any other code is a job this plug-in doesn't know (homing, levelling, an
+    # update...): the Device tab has no "busy" state, and idle would offer moves and new prints, so
+    # it shows as preparing.
+    return "PREPARE"
 
 
 def build_payload(status: dict, attributes: dict) -> dict:
