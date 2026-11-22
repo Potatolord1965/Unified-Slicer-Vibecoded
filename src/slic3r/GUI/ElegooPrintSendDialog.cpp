@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <exception>
 #include <map>
 #include <memory>
 #include <string>

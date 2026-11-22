@@ -27,6 +27,8 @@
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
 #include <wx/dialog.h>
+#include <wx/defs.h>
+#include <wx/event.h>
 #include <wx/secretstore.h>
 #include <wx/stattext.h>
 #include <wx/sizer.h>

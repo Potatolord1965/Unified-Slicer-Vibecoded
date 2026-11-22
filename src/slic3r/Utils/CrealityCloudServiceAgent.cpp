@@ -15,6 +15,7 @@
 #include <boost/filesystem/path.hpp>
 #include <boost/log/trivial.hpp>
 #include <nlohmann/json.hpp>
+#include <wx/progdlg.h>
 #include <wx/string.h>
 
 namespace Slic3r {

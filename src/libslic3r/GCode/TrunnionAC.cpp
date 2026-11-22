@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
+#include <vector>
 
 namespace Slic3r {
 namespace TrunnionAC {

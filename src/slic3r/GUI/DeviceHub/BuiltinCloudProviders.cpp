@@ -4,6 +4,7 @@
 #include "slic3r/GUI/BusyWork.hpp"
 
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include <boost/log/trivial.hpp>

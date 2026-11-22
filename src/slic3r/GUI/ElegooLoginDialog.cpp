@@ -15,6 +15,8 @@
 
 #include <wx/button.h>
 #include <wx/choice.h>
+#include <wx/defs.h>
+#include <wx/event.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
