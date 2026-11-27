@@ -326,7 +326,8 @@ CloudProviderPage::CloudProviderPage(wxWindow* parent, CloudPrinterProviderPtr p
     m_cards = new wxScrolledWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
     m_cards->SetBackgroundColour(GetBackgroundColour());
     m_cards->SetScrollRate(0, FromDIP(20));
-    m_cards->SetSizer(new wxWrapSizer(wxHORIZONTAL));
+    // Not wxEXTEND_LAST_ON_EACH_LINE (a default flag): it stretches the last card of each row to the edge.
+    m_cards->SetSizer(new wxWrapSizer(wxHORIZONTAL, wxREMOVE_LEADING_SPACES));
     m_cards->Hide();
     sizer->Add(m_cards, 1, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(16));
 
