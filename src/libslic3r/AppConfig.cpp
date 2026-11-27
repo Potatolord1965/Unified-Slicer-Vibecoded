@@ -1495,10 +1495,10 @@ std::string AppConfig::get_last_dir() const
     return std::string();
 }
 
-std::vector<std::string> AppConfig::get_recent_projects() const
+std::vector<std::string> AppConfig::get_numbered_list(const std::string &section) const
 {
     std::vector<std::string> ret;
-    const auto it = m_storage.find("recent_projects");
+    const auto it = m_storage.find(section);
     if (it != m_storage.end())
     {
         for (const std::map<std::string, std::string>::value_type& item : it->second)
@@ -1509,20 +1509,28 @@ std::vector<std::string> AppConfig::get_recent_projects() const
     return ret;
 }
 
-void AppConfig::set_recent_projects(const std::vector<std::string>& recent_projects)
+void AppConfig::set_numbered_list(const std::string &section, const std::vector<std::string> &list)
 {
-    auto it = m_storage.find("recent_projects");
-    if (it == m_storage.end())
-        it = m_storage.insert(std::map<std::string, std::map<std::string, std::string>>::value_type("recent_projects", std::map<std::string, std::string>())).first;
-
-    it->second.clear();
-    for (unsigned int i = 0; i < (unsigned int)recent_projects.size(); ++i)
+    std::map<std::string, std::string> &items = m_storage[section];
+    items.clear();
+    for (unsigned int i = 0; i < (unsigned int)list.size(); ++i)
     {
         auto n = std::to_string(i + 1);
         if (n.length() == 1) n = "00" + n;
         else if (n.length() == 2) n = "0" + n;
-        it->second[n] = recent_projects[i];
+        items[n] = list[i];
     }
+    m_dirty = true;
+}
+
+std::vector<std::string> AppConfig::get_recent_projects() const
+{
+    return get_numbered_list("recent_projects");
+}
+
+void AppConfig::set_recent_projects(const std::vector<std::string>& recent_projects)
+{
+    set_numbered_list("recent_projects", recent_projects);
 }
 
 void AppConfig::set_mouse_device(const std::string& name, double translation_speed, double translation_deadzone,

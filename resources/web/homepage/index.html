@@ -174,33 +174,37 @@
 		<div id="RecentTitleBlock">
 		    <div id="RecentTitle" class="Content-Title TextS1" data-i18n="recently_opened">Recently opened</div>
 			<div id="RecentClearAllBtn" class="ButtonStyleRegular ButtonTypeWindow" onClick="OnDeleteAllRecentFiles()" data-i18n="clear_all">Clear all</div>
-		</div>
-		<div id="FileList" class="thin-scroll">
-			<!-- EXAMPLE GENERATED BLOCK
-			<div class="FileItem" fpath="sPath">
-				<a class="FileTip" title="sPath"></a>
-				<div class="FileImg" >
-					<img src="sImg" onerror="this.onerror=null;this.src=\'img/d.png\';" alt="No Image"/>
-					sLogoBadge
-				</div>
-				<div class="FileNamePack">
-					<div class="FileName TextS1">
-						orca-model.3mf
-					</div>
-				</div>
-				<div class="FileDate">
-					2026/05/27 09:22
-				</div>
-				<div class="FileActions">
-					<div class="FileActionsReveal ButtonStyleRegular ButtonTypeWindow" fpath="btnPath">Show in folder</div>
-					<div class="FileActionsRemove ButtonStyleAlert ButtonTypeWindow" fpath="sPath">
-					<div class="icon16"/></div>
-				</div>
+			<!-- Card or list view, for both lists on this page (SetProjectView in js/home.js). -->
+			<div id="ViewSelector" role="radiogroup">
+				<div class="ViewButton" view="cards" role="radio" tabindex="0" title="Card view" data-i18n-title="card_view" onClick="SetProjectView('cards')"><div class="icon16"></div></div>
+				<div class="ViewButton" view="list" role="radio" tabindex="0" title="List view" data-i18n-title="list_view" onClick="SetProjectView('list')"><div class="icon16"></div></div>
 			</div>
-			-->	
+		</div>
+		<!-- One row of the most recent projects (ApplyRecentRowCap); the rest are under All projects. -->
+		<div id="FileList" class="ProjectList">
+			<!-- Cards made by ProjectItemHtml in js/home.js -->
 		</div>
 	</div>
-	
+
+	<div id="AllProjectsArea">
+		<div id="ProjectsTitleBlock">
+			<div class="Content-Title TextS1" data-i18n="all_projects">All projects</div>
+			<div id="ProjectsCount"></div>
+			<div id="ProjectsStatus" data-i18n="searching_projects">Searching…</div>
+			<div id="ProjectsTools">
+				<input id="ProjectsSearch" type="search" placeholder="Search projects" data-i18n-placeholder="search_projects" oninput="RenderAllProjects()" />
+				<div id="ProjectsRefreshBtn" class="ButtonStyleRegular ButtonTypeWindow" onClick="OnRefreshProjects()" data-i18n="refresh">Refresh</div>
+			</div>
+		</div>
+		<!-- The folders searched for project files, then the add button. -->
+		<div id="ProjectFolders">
+			<div id="ProjectFolderChips"></div>
+			<div id="AddProjectFolderBtn" class="ButtonStyleConfirm ButtonTypeWindow" onClick="OnAddProjectFolder()" data-i18n="add_folder">Add folder</div>
+		</div>
+		<div id="ProjectsEmpty"></div>
+		<div id="ProjectList" class="ProjectList"></div>
+	</div>
+
     <div style="height: 14px;"></div>	
 	<!--
 	<div id="recnet_context_menu">
@@ -222,6 +226,10 @@
 	//HandleStudio(TestData);
     document.onkeydown = function (event) {
 		var e = event || window.event || arguments.callee.caller.arguments[0];
+
+		// Text fields (the project search) keep their keys, editing shortcuts included.
+		if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA"))
+			return;
 
 		if (e.ctrlKey && e.metaKey)
 			OutputKey(e.keyCode, true, false, true);
