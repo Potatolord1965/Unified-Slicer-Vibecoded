@@ -30,6 +30,7 @@
 #include <exception>
 #include <thread>
 #include <vector>
+#include <wx/app.h>
 #include <wx/base64.h>
 #include <wx/datetime.h>
 #include <wx/defs.h>
