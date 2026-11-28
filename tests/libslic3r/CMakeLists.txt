@@ -44,6 +44,7 @@ add_executable(${_TEST_NAME}_tests
     test_import_parents.cpp
     test_preset_options.cpp
     test_other_slicer_import.cpp
+    test_project_library.cpp
     test_edge_grid.cpp
     test_elephant_foot_compensation.cpp
     test_exclusion_volumes.cpp

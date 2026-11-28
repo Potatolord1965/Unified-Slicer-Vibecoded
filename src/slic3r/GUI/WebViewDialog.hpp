@@ -10,6 +10,7 @@
 #include <wx/string.h>
 #include <wx/event.h>
 #include <string>
+#include <vector>
 #include <functional>
 #include <map>
 #include <wx/dialog.h>
@@ -104,8 +105,21 @@ public:
     wxTimer * m_LoginUpdateTimer{nullptr};
     void OnFreshLoginStatus(wxTimerEvent &event);
 
+    // Counts SendAllProjects() calls, so a search that finishes after a newer one started is dropped.
+    unsigned m_projects_request{0};
+
 public:
     void SendRecentList(int images);
+    // Finds the "All projects" list (ProjectLibrary::collect: the chosen folders and the recent
+    // lists of this and the other slicers installed) on a worker thread and sends it to the page as
+    // "all_projects". A newer call supersedes one still running.
+    void SendAllProjects();
+    // Sends the thumbnails of `paths` as "project_thumbnails" (data: URLs, "" for none), read on a
+    // worker thread. The page asks for the cards it scrolls into view.
+    void SendProjectThumbnails(std::vector<std::string> paths);
+    // Asks for a folder to add to the "All projects" search, or removes one, then searches again.
+    void AddProjectFolder();
+    void RemoveProjectFolder(const std::string& folder);
     void SetLoginPanelVisibility(bool bshow);
     void SendDesignStaffpick(bool on);
     void OpenModelDetail(std::string id, NetworkAgent *agent);

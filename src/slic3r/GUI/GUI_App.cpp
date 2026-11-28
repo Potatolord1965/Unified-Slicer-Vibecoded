@@ -5819,6 +5819,33 @@ std::string GUI_App::handle_web_request(std::string cmd)
                     }
                 }
             }
+            else if (command_str.compare("get_all_projects") == 0) {
+                if (WebViewPanel* home = WebViewPanel::if_built())
+                    home->SendAllProjects();
+            }
+            else if (command_str.compare("homepage_get_project_thumbnails") == 0) {
+                std::vector<std::string> paths;
+                if (auto data = root.get_child_optional("data"))
+                    if (auto list = data->get_child_optional("paths"))
+                        for (const auto& item : *list)
+                            paths.push_back(item.second.get_value<std::string>());
+                if (WebViewPanel* home = WebViewPanel::if_built())
+                    home->SendProjectThumbnails(std::move(paths));
+            }
+            else if (command_str.compare("homepage_add_project_folder") == 0) {
+                // Deferred: the folder dialog is modal and must not run inside the webview's message handler.
+                CallAfter([]() {
+                    if (WebViewPanel* home = WebViewPanel::if_built())
+                        home->AddProjectFolder();
+                });
+            }
+            else if (command_str.compare("homepage_remove_project_folder") == 0) {
+                std::string folder;
+                if (auto data = root.get_child_optional("data"))
+                    folder = data->get<std::string>("path", "");
+                if (WebViewPanel* home = WebViewPanel::if_built())
+                    home->RemoveProjectFolder(folder);
+            }
             // else if (command_str.compare("modelmall_model_advise_get") == 0) {
             //     if (mainframe && this->app_config->get("staff_pick_switch") == "true") {
             //         if (mainframe->m_webview) {

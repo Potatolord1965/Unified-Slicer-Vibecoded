@@ -673,6 +673,14 @@ body.cloud-mode #LeftBoard
 	overflow-y: auto;
 }
 
+/*---- Icons only the home page uses (the shared ones are in include/global.css) ----*/
+:root {
+--icon-view-list:
+	url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M5.5,2.5h10M5.5,8h10M5.5,13.5h10M.5,2.5h2M.5,8h2M.5,13.5h2" style="fill:none; stroke:currentColor; stroke-linecap:round"/></svg>');
+--icon-folder:
+	url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M.5,12.5V3.5c0-.55.45-1,1-1h4l2,2h7c.55,0,1,.45,1,1v7c0,.55-.45,1-1,1H1.5c-.55,0-1-.45-1-1Z" style="fill:none; stroke:currentColor; stroke-linejoin:round"/></svg>');
+}
+
 #ContentBoard
 {
 	overflow-y:auto;
@@ -783,10 +791,9 @@ body.cloud-mode #LeftBoard
 #RecentFileArea
 {
 	margin-top: 10px;
-	flex: 1;
+	flex: none;
 	display: flex;
 	flex-direction: column;
-	min-height: 0;
 }
 
 #RecentTitleBlock
@@ -795,6 +802,31 @@ body.cloud-mode #LeftBoard
 	align-items: center;
 	padding: 6px 0px;
 }
+
+/*---- Card / list view switch for both project lists (SetProjectView in js/home.js) ----*/
+#ViewSelector
+{
+	margin-left: auto;
+	display: flex;
+	padding: 2px;
+	gap: 2px;
+	border-radius: 6px;
+	background-color: var(--bg-color-alt);
+}
+
+.ViewButton
+{
+	padding: 5px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.ViewButton:hover                  {background: var(--focus-bg-item)}
+.ViewButton.Selected               {background: var(--main-color)}
+.ViewButton.Selected:hover         {background: var(--main-color-hover)}
+.ViewButton.Selected .icon16       {background: #FFF}
+.ViewButton[view="cards"] .icon16  {--icon-url: var(--icon-layout-cover)}
+.ViewButton[view="list"] .icon16   {--icon-url: var(--icon-view-list)}
 
 #RecentClearAllBtn
 {
@@ -807,14 +839,289 @@ body.cloud-mode #LeftBoard
 	
 }
 
-#FileList
+/*---- Both lists: wrapping cards, or rows in list view ----*/
+.ProjectList
 {
-	flex: 1;
 	display: flex;
 	flex-wrap: wrap;
 	align-content: flex-start;
-	overflow-y: auto;
+}
+
+/*---- Recently opened keeps one row of cards (ApplyRecentRowCap); All projects has the rest ----*/
+#FileList .FileItem.OverRow
+{
+	display: none;
+}
+
+#AllProjectsArea
+{
+	margin-top: 18px;
+	flex: none;
+}
+
+#ProjectsTitleBlock
+{
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 0px;
+}
+
+#ProjectsTitleBlock .Content-Title
+{
+	margin-right: 0;
+}
+
+#ProjectsCount,
+#ProjectsStatus,
+.FolderHint,
+#ProjectsEmpty
+{
+	color: var(--fg-color-disabled);
+}
+
+#ProjectsStatus
+{
+	display: none;
+}
+
+#ProjectsTools
+{
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#ProjectsSearch
+{
+	box-sizing: border-box;
+	width: 200px;
+	height: 24px;
+	padding: 0 10px;
+	border: 1px solid var(--border-color);
+	border-radius: 12px;
+	outline: none;
+	background: var(--bg-color);
+	color: var(--fg-color-text);
+	font: inherit;
+	font-size: 13px;
+}
+
+#ProjectsSearch:focus
+{
+	border-color: var(--main-color);
+}
+
+#ProjectFolders
+{
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 2px 0 8px;
+}
+
+#ProjectFolderChips
+{
+	display: contents;
+}
+
+.FolderChip
+{
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 280px;
+	height: 24px;
+	padding: 0 4px 0 10px;
+	box-sizing: border-box;
+	border-radius: 12px;
+	background: var(--button-bg-normal);
+	color: var(--button-fg-text);
+	font-size: 13px;
+}
+
+.FolderChipIcon
+{
+	flex: none;
+	--icon-url: var(--icon-folder);
+}
+
+.FolderChipName
+{
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.FolderChipRemove
+{
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 9px;
+	cursor: pointer;
+}
+
+.FolderChipRemove .icon16
+{
+	width: 10px;
+	height: 10px;
+	-webkit-mask-size: contain;
+	mask-size: contain;
+	background: var(--fg-color-text);
+	--icon-url: var(--icon-cross);
+}
+
+.FolderChipRemove:hover        {background: var(--button-bg-alert)}
+.FolderChipRemove:hover .icon16 {background: #FFF}
+
+.FolderHint
+{
+	font-size: 13px;
+}
+
+#ProjectsEmpty
+{
+	display: none;
+	padding: 24px 0;
+}
+
+/*---- Column text shown only in list view, and the column headings ----*/
+.FileLocation,
+.FileApps,
+.ListHeader
+{
+	display: none;
+}
+
+.FileLocation,
+.FileApps
+{
+	color: var(--fg-color-disabled);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+body[data-view="list"] .ProjectList
+{
+	flex-direction: column;
+	flex-wrap: nowrap;
+}
+
+body[data-view="list"] .FileItem,
+body[data-view="list"] .ListHeader
+{
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	width: auto;
+	height: 44px;
+	margin: 0;
+	padding: 0 8px;
+	border-radius: 8px;
+}
+
+body[data-view="list"] .FileItem:hover
+{
+	background-color: var(--focus-bg-box);
+}
+
+body[data-view="list"] .ListHeader
+{
+	height: 28px;
+	margin-bottom: 4px;
+	border-radius: 0;
+	border-bottom: 1px solid var(--border-color);
+	color: var(--fg-color-disabled);
+	font-size: 12px;
+}
+
+body[data-view="list"] .FileImg,
+body[data-view="list"] .FileItem img
+{
+	flex: none;
+	width: 36px;
+	height: 36px;
+	border-radius: 6px;
+}
+
+body[data-view="list"] .ListHeader .FileImg
+{
+	background: none;
+	box-shadow: none;
+}
+
+/*---- The row's PUB badge already marks a published project ----*/
+body[data-view="list"] .FileImg .FileLogoBadge
+{
+	display: none;
+}
+
+body[data-view="list"] .FileNamePack,
+body[data-view="list"] .FileItem:hover .FileNamePack
+{
+	display: flex;
+	flex: 2 1 0;
+	margin-top: 0;
+}
+
+body[data-view="list"] .FileLocation
+{
+	display: block;
+	flex: 3 1 0;
+	min-width: 0;
+}
+
+body[data-view="list"] .FileApps
+{
+	display: block;
+	flex: 1.5 1 0;
+	min-width: 0;
+}
+
+body[data-view="list"] .FileDate,
+body[data-view="list"] .FileItem:hover .FileDate
+{
+	display: block;
+	flex: 0 0 170px;
+}
+
+/*---- In list view the actions take the row's end instead of replacing the name ----*/
+body[data-view="list"] .FileActions,
+body[data-view="list"] .FileItem:hover .FileActions
+{
+	display: flex;
+	flex: 0 0 150px;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	width: auto;
 	min-height: 0;
+	margin-top: 0;
+}
+
+body[data-view="list"] .FileActions
+{
+	visibility: hidden;
+}
+
+body[data-view="list"] .FileItem:hover .FileActions
+{
+	visibility: visible;
+}
+
+body[data-view="list"] .FileActionsReveal,
+body[data-view="list"] .FileActionsRemove
+{
+	margin: 0;
+	border-color: transparent;
+	background-clip: padding-box;
 }
 
 .FileItem

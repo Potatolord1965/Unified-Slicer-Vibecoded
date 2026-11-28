@@ -11,94 +11,153 @@ function OnInit()
         AppendTemplate(pluginTip, T("plugin_not_detected", "Bambu Network plug-in not detected. Click <a>here</a> to install it."),
                        pluginTip.querySelector("a"));
 
+	InitProjectView();
+	Set_ProjectList_Events();
+
 	SendMsg_GetLoginInfo();
 	SendMsg_GetBambuLoginInfo();
 	SendMsg_GetRecentFile();
+	RequestAllProjects(false);
 	SendMsg_GetStaffPick();
 
 	Set_AccountMenu_Event();
 	InitNavCollapsed();
 }
 
-//------最佳打开文件的右键菜单功能----------
+/*------Project lists: Recently opened and All projects share the item markup and its events------*/
 var RightBtnFilePath='';
+var sImages = {};        // recent project path -> thumbnail data URL
+var m_ProjectThumbs = {}; // All projects path -> thumbnail data URL, "" for none
 
-var MousePosX=0;
-var MousePosY=0;
-var sImages = {};
- 
-function Set_RecentFile_MouseRightBtn_Event()
+// Bound once: the lists are re-rendered, so the handlers are delegated from the document.
+function Set_ProjectList_Events()
 {
-	$(".FileItem").mousedown(
-		function(e)
-		{			
-			//FilePath
-			RightBtnFilePath=$(this).attr('fpath');
-			
-			if(e.which == 3){
-				//鼠标点击了右键+$(this).attr('ff') );
-				//ShowRecnetFileContextMenu();
-			}else if(e.which == 2){
-				//鼠标点击了中键
-			}else if(e.which == 1){
-				//鼠标点击了左键
-				OnOpenRecentFile( encodeURI(RightBtnFilePath) );
-			}
-		});
-
-	$(document).bind("contextmenu",function(e){
-		//在这里书写代码，构建个性右键化菜单
-		return false;
-	});	
-	
-	// ORCA file actions
-	$(".FileActions").mousedown(function(e){		
-		return false; // Block events on empty area & parent
+	$(document).on("mousedown", ".FileItem", function(e)
+	{
+		if( e.which == 1 )
+			OnOpenRecentFile( encodeURI($(this).attr('fpath')) );
 	});
 
-	$(".FileActionsReveal").mousedown(function(e){		
+	$(document).bind("contextmenu",function(e){
+		return false;
+	});
+
+	// ORCA file actions
+	$(document).on("mousedown", ".FileActions", function(e){
+		return false; // Block events on empty area & parent
+	});
+	$(document).on("mousedown", ".FileActionsReveal", function(e){
 		RightBtnFilePath=$(this).attr('fpath');
 		if(e.which == 1 && RightBtnFilePath != "")
 			OnExploreRecentFile();
 		return false; // Block events from parent
 	});
-	$(".FileActionsRemove").mousedown(function(e){		
+	$(document).on("mousedown", ".FileActionsRemove", function(e){
 		RightBtnFilePath=$(this).attr('fpath');
 		if(e.which == 1)
 			OnDeleteRecentFile();
 		return false; // Block events from parent
 	});
 
-    $(document).mousemove( function(e){
-		MousePosX=e.pageX;
-		MousePosY=e.pageY;
-		
-		//let ContextMenuWidth=$('#recnet_context_menu').width();
-		//let ContextMenuHeight=$('#recnet_context_menu').height();
-	
-		let DocumentWidth=$(document).width();
-		let DocumentHeight=$(document).height();
-		
-		//$("#DebugText").text( ContextMenuWidth+' - '+ContextMenuHeight+'<br/>'+
-		//					 DocumentWidth+' - '+DocumentHeight+'<br/>'+
-		//					 MousePosX+' - '+MousePosY +'<br/>' );
-	} );
-	
+	$(document).on("click", ".FolderChipRemove", function(e){
+		var tSend={};
+		tSend['sequence_id']=Math.round(new Date() / 1000);
+		tSend['command']="homepage_remove_project_folder";
+		tSend['data']={ path: $(this).attr('fpath') };
+		SendWXMessage( JSON.stringify(tSend) );
+		return false;
+	});
 
-	$(document).click( function(){		
-		var e = e || window.event;
-        var elem = e.target || e.srcElement;
-        while (elem) {
-			//if (elem.id && elem.id == 'recnet_context_menu') {
-            //        return;
-			//}
-			elem = elem.parentNode;
-		}		
-		
-		//$("#recnet_context_menu").hide();
-	} );
+	if( "ResizeObserver" in window )
+		new ResizeObserver(ApplyRecentRowCap).observe(document.getElementById("FileList"));
+	else
+		$(window).resize(ApplyRecentRowCap);
+}
 
-	
+function EscapeHtml( sText )
+{
+	return String(sText == null ? "" : sText).replace(/[&<>"']/g, function(c) {
+		return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+	});
+}
+
+function ParentFolder( sPath )
+{
+	let n=Math.max(sPath.lastIndexOf('\\'), sPath.lastIndexOf('/'));
+	return n>0 ? sPath.substring(0,n) : "";
+}
+
+// The last name in a folder path ("D:\\Prints\\Toys" -> "Toys"), or the path itself for a drive root.
+function FolderLabel( sPath )
+{
+	let pParts=sPath.split(/[\\/]+/).filter(function(s) { return s!=""; });
+	return pParts.length>1 ? pParts[pParts.length-1] : sPath;
+}
+
+// One project as a card (or a row in list view). Recent projects can be removed from the list.
+function ProjectItemHtml( OneFile, bRecent )
+{
+	let sPath=OneFile['path'];
+	let sTime=OneFile['time'] || "";
+	let bPublished=OneFile['published'] == '1';
+	let bExist=!bRecent || !isNaN(sTime[0]); // a recent file without a time stamp is missing
+	let sThumb=bRecent ? (OneFile["image"] || sImages[sPath]) : (sImages[sPath] || m_ProjectThumbs[sPath]);
+	// All projects thumbnails are asked for as the cards scroll into view (ObserveProjectThumbnails).
+	let bPending=!bRecent && sThumb===undefined && !OneFile['cloud_only'];
+	let sTip=OneFile['cloud_only'] ? sPath+"\n"+T("cloud_only_file", "Stored online. Opening it downloads it.") : sPath;
+
+	let sBadge=bPublished? '<span class="FilePublishedBadge">'+EscapeHtml(T("published_badge", "PUB"))+'</span>':'';
+	let sLogoBadge=bPublished? '<img class="FileLogoBadge" src="../../images/OrcaSlicer_gradient_circle.svg" alt="" />':'';
+
+	return '<div class="FileItem" fpath="'+EscapeHtml(sPath)+'"'+(bPending ? ' thumb="pending"' : '')+'>'+
+				'<a class="FileTip" title="'+EscapeHtml(sTip)+'"></a>'+
+				'<div class="FileImg"><img src="'+EscapeHtml(sThumb || 'img/d.png')+'" onerror="this.onerror=null;this.src=\'img/d.png\';" alt="" />'+sLogoBadge+'</div>'+
+				'<div class="FileNamePack">'+sBadge+'<div class="FileName TextS1">'+EscapeHtml(OneFile['project_name'])+'</div></div>'+
+				'<div class="FileLocation">'+EscapeHtml(ParentFolder(sPath))+'</div>'+
+				'<div class="FileApps">'+EscapeHtml((OneFile['opened_in'] || []).join(", "))+'</div>'+
+				'<div class="FileDate">'+EscapeHtml(sTime)+'</div>'+
+				'<div class="FileActions">'+
+					'<div class="FileActionsReveal '+(bExist ? 'ButtonStyleConfirm' : 'ButtonStyleDisabled')+' ButtonTypeWindow" fpath="'+(bExist ? EscapeHtml(sPath) : '')+'" data-i18n="show_in_folder">Show in folder</div>'+
+					(bRecent ? '<div class="FileActionsRemove ButtonStyleAlert ButtonTypeWindow" fpath="'+EscapeHtml(sPath)+'"><div class="icon16"></div></div>' : '')+
+				'</div>'+
+			'</div>';
+}
+
+/*------Card or list view------*/
+var PROJECT_VIEW_KEY = "UnifiedHome_ProjectView";
+
+function InitProjectView()
+{
+	let sView="cards";
+	try { sView=localStorage.getItem(PROJECT_VIEW_KEY) || "cards"; } catch (e) {}
+	SetProjectView(sView);
+}
+
+function SetProjectView( sView )
+{
+	if( sView!="list" )
+		sView="cards";
+	$("body").attr("data-view", sView);
+	$(".ViewButton").each(function() {
+		let bOn=$(this).attr("view")==sView;
+		$(this).toggleClass("Selected", bOn).attr("aria-checked", bOn ? "true" : "false");
+	});
+	// Best effort: the view is a per-machine convenience, not a synced preference.
+	try { localStorage.setItem(PROJECT_VIEW_KEY, sView); } catch (e) {}
+	ApplyRecentRowCap();
+}
+
+// Recently opened shows one row of cards; the rest are under All projects. The list view shows the
+// same projects, so switching views keeps them.
+function ApplyRecentRowCap()
+{
+	let list=document.getElementById("FileList");
+	if( !list )
+		return;
+	let nPerRow=Math.max(1, Math.floor((list.clientWidth + 16) / (184 + 16))); // .FileItem width + right margin
+	list.querySelectorAll(".FileItem").forEach(function(item, n) {
+		item.classList.toggle("OverRow", n >= nPerRow);
+	});
 }
 
 function SetLoginPanelVisibility(visible) {
@@ -112,6 +171,12 @@ function HandleStudio( pVal )
 	
 	if (strCmd == "get_recent_projects") {
     ShowRecentFileList(pVal["response"]);
+  } else if (strCmd == "all_projects_searching") {
+    ShowProjectsSearching(pVal["folders"]);
+  } else if (strCmd == "all_projects") {
+    ShowAllProjects(pVal["folders"], pVal["projects"]);
+  } else if (strCmd == "project_thumbnails") {
+    ShowProjectThumbnails(pVal["thumbnails"]);
   } else if (strCmd == "orca_userlogin") {
     SetOrcaLoginInfo(pVal["data"]["avatar"], pVal["data"]["name"], pVal["data"]["account"]);
   } else if (strCmd == "orca_useroffline") {
@@ -406,7 +471,7 @@ function Set_AccountMenu_Event() {
   });
 
   /*----Enter and Space activate the div-based buttons of this panel----*/
-  $(document).on("keydown", "#LoginArea [role=button], #LoginArea [role=menuitem], #NavCollapseBtn", function (e) {
+  $(document).on("keydown", "#LoginArea [role=button], #LoginArea [role=menuitem], #NavCollapseBtn, .ViewButton", function (e) {
     if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
     e.preventDefault();
     this.click();
@@ -421,52 +486,177 @@ function SetMallUrl( strUrl )
 
 function ShowRecentFileList( pList )
 {
-	let nTotal=pList.length;
-	
 	let strHtml='';
-	for(let n=0;n<nTotal;n++)
+	for(let n=0;n<pList.length;n++)
 	{
 		let OneFile=pList[n];
-		
-		let sPath=OneFile['path'];
-		let sImg=OneFile["image"] || sImages[sPath];
-		let sTime=OneFile['time'];
-		let sName=OneFile['project_name'];
-		let sPublished=OneFile['published'] == '1';
-		sImages[sPath] = sImg;
-		
-		//let index=sPath.lastIndexOf('\\')>0?sPath.lastIndexOf('\\'):sPath.lastIndexOf('\/');
-		//let sShortName=sPath.substring(index+1,sPath.length);
-
-		let isExist  = !isNaN(sTime[0]); // its a valid file with time stamp
-		let btnStyle = isExist ? "ButtonStyleConfirm" : "ButtonStyleDisabled";
-		let btnPath  = isExist ? sPath : ""; // blank path will disable btn event
-		
-		let sBadge=sPublished? '<span class="FilePublishedBadge">'+T("published_badge", "PUB")+'</span>':'';
-		let sLogoBadge=sPublished? '<img class="FileLogoBadge" src="../../images/OrcaSlicer_gradient_circle.svg" alt="" />':'';
-
-		let TmpHtml='<div class="FileItem"  fpath="'+sPath+'"  >'+
-						'<a class="FileTip" title="'+sPath+'"></a>'+
-						'<div class="FileImg" ><img src="'+sImg+'" onerror="this.onerror=null;this.src=\'img/d.png\';"  alt="No Image"  />'+sLogoBadge+'</div>'+
-						'<div class="FileNamePack">'+sBadge+'<div class="FileName TextS1">'+sName+'</div></div>'+
-						'<div class="FileDate">'+sTime+'</div>'+
-						'<div class="FileActions">'+
-							'<div class="FileActionsReveal '+btnStyle+' ButtonTypeWindow trans" fpath="'+btnPath+'" data-i18n="show_in_folder">Show in folder</div>'+
-							'<div class="FileActionsRemove ButtonStyleAlert ButtonTypeWindow" fpath="'+sPath+'">'+
-								'<div class="icon16"/></div>'+
-							'</div>'+
-						'</div>'+
-			    	'</div>';
-		
-		strHtml+=TmpHtml;
+		if( OneFile["image"] )
+			sImages[OneFile['path']]=OneFile["image"];
+		strHtml+=ProjectItemHtml(OneFile, true);
 	}
-	
-	$("#FileList").html(strHtml);	
+
+	$("#FileList").html(strHtml);
 	TranslatePage();   // translate the data-i18n attributes on the freshly inserted cards
-	
-    Set_RecentFile_MouseRightBtn_Event();
+	ApplyRecentRowCap();
 	UpdateRecentClearBtnDisplay();
+
+	// A project was opened or saved since the last search: its list entry may be new.
+	RequestAllProjects(true);
 }
+
+/*------All projects------*/
+var m_AllProjects=[];
+var m_ProjectFolders=[];
+var m_LastProjectsRequest=0;
+
+// bIfStale: skip it when a search started in the last few seconds.
+function RequestAllProjects( bIfStale )
+{
+	let tNow=Date.now();
+	if( bIfStale && tNow-m_LastProjectsRequest<15000 )
+		return;
+	m_LastProjectsRequest=tNow;
+	SendSimpleCommand("get_all_projects");
+}
+
+function OnRefreshProjects()
+{
+	m_ProjectThumbs={};
+	RequestAllProjects(false);
+}
+
+function OnAddProjectFolder()
+{
+	SendSimpleCommand("homepage_add_project_folder");
+}
+
+function ShowProjectFolders( pFolders )
+{
+	m_ProjectFolders=pFolders || [];
+	let strHtml='';
+	for(let n=0;n<m_ProjectFolders.length;n++)
+	{
+		let sFolder=m_ProjectFolders[n];
+		strHtml+='<div class="FolderChip" title="'+EscapeHtml(sFolder)+'">'+
+					'<div class="FolderChipIcon icon16"></div>'+
+					'<div class="FolderChipName">'+EscapeHtml(FolderLabel(sFolder))+'</div>'+
+					'<div class="FolderChipRemove" fpath="'+EscapeHtml(sFolder)+'" title="'+EscapeHtml(T("remove_folder", "Remove folder"))+'"><div class="icon16"></div></div>'+
+				'</div>';
+	}
+	if( m_ProjectFolders.length==0 )
+		strHtml='<div class="FolderHint">'+EscapeHtml(T("projects_add_folders", "Add the folders where you keep your projects. Projects you opened in this or another Orca-based slicer are listed here too."))+'</div>';
+	$("#ProjectFolderChips").html(strHtml);
+}
+
+function ShowProjectsSearching( pFolders )
+{
+	ShowProjectFolders(pFolders);
+	$("#ProjectsStatus").show();
+}
+
+function ShowAllProjects( pFolders, pProjects )
+{
+	ShowProjectFolders(pFolders);
+	m_AllProjects=pProjects || [];
+	$("#ProjectsStatus").hide();
+	RenderAllProjects();
+}
+
+function RenderAllProjects()
+{
+	let sFilter=($("#ProjectsSearch").val() || "").trim().toLowerCase();
+	let pShown=sFilter=="" ? m_AllProjects : m_AllProjects.filter(function(p) {
+		return String(p['project_name'] || "").toLowerCase().indexOf(sFilter) >= 0;
+	});
+
+	let strHtml='<div class="ListHeader">'+
+					'<div class="FileImg"></div>'+
+					'<div class="FileNamePack" data-i18n="column_name">Name</div>'+
+					'<div class="FileLocation" data-i18n="column_location">Location</div>'+
+					'<div class="FileApps" data-i18n="column_opened_in">Opened in</div>'+
+					'<div class="FileDate" data-i18n="column_modified">Modified</div>'+
+					'<div class="FileActions"></div>'+
+				'</div>';
+	for(let n=0;n<pShown.length;n++)
+		strHtml+=ProjectItemHtml(pShown[n], false);
+	$("#ProjectList").html(strHtml).toggle(pShown.length>0);
+	TranslatePage();
+
+	$("#ProjectsCount").text(m_AllProjects.length>0 ? m_AllProjects.length : "");
+	let sEmpty="";
+	if( m_AllProjects.length==0 && m_ProjectFolders.length>0 )
+		sEmpty=T("projects_none", "No projects found in these folders.");
+	else if( m_AllProjects.length>0 && pShown.length==0 )
+		sEmpty=T("projects_no_match", "No projects match your search.");
+	$("#ProjectsEmpty").text(sEmpty).toggle(sEmpty!="");
+
+	ObserveProjectThumbnails();
+}
+
+/*------All projects thumbnails, asked for in batches as the cards come into view------*/
+var m_ThumbObserver=null;
+var m_ThumbQueue=[];
+var m_ThumbTimer=null;
+
+function ObserveProjectThumbnails()
+{
+	if( m_ThumbObserver!=null )
+		m_ThumbObserver.disconnect();
+	let pItems=document.querySelectorAll('#ProjectList .FileItem[thumb="pending"]');
+	if( !("IntersectionObserver" in window) )
+	{
+		Array.prototype.slice.call(pItems, 0, 64).forEach(QueueProjectThumbnail);
+		return;
+	}
+	m_ThumbObserver=new IntersectionObserver(function(entries) {
+		entries.forEach(function(entry) {
+			if( entry.isIntersecting )
+			{
+				m_ThumbObserver.unobserve(entry.target);
+				QueueProjectThumbnail(entry.target);
+			}
+		});
+	}, { root: document.getElementById("ContentBoard"), rootMargin: "300px" });
+	pItems.forEach(function(item) { m_ThumbObserver.observe(item); });
+}
+
+function QueueProjectThumbnail( item )
+{
+	item.setAttribute("thumb", "requested");
+	let sPath=item.getAttribute("fpath");
+	if( m_ThumbQueue.indexOf(sPath)<0 )
+		m_ThumbQueue.push(sPath);
+	if( m_ThumbTimer==null )
+		m_ThumbTimer=setTimeout(FlushProjectThumbnails, 50);
+}
+
+function FlushProjectThumbnails()
+{
+	m_ThumbTimer=null;
+	while( m_ThumbQueue.length>0 )
+	{
+		var tSend={};
+		tSend['sequence_id']=Math.round(new Date() / 1000);
+		tSend['command']="homepage_get_project_thumbnails";
+		tSend['data']={ paths: m_ThumbQueue.splice(0, 32) };
+		SendWXMessage( JSON.stringify(tSend) );
+	}
+}
+
+function ShowProjectThumbnails( pThumbs )
+{
+	for( let sPath in pThumbs )
+		m_ProjectThumbs[sPath]=pThumbs[sPath];
+	document.querySelectorAll('#ProjectList .FileItem[thumb="requested"]').forEach(function(item) {
+		let sThumb=m_ProjectThumbs[item.getAttribute("fpath")];
+		if( sThumb===undefined )
+			return;
+		item.removeAttribute("thumb");
+		if( sThumb!="" )
+			item.querySelector(".FileImg img").src=sThumb;
+	});
+}
+
 /*
 function ShowRecnetFileContextMenu()
 {
@@ -563,7 +753,7 @@ function OnDeleteRecentFile( )
 	//Clear in UI
 	//$("#recnet_context_menu").hide();
 	
-	let AllFile=$(".FileItem");
+	let AllFile=$("#FileList .FileItem");
 	let nFile=AllFile.length;
 	for(let p=0;p<nFile;p++)
 	{
@@ -572,6 +762,7 @@ function OnDeleteRecentFile( )
 			$(AllFile[p]).remove();
 	}	
 	
+	ApplyRecentRowCap();
 	UpdateRecentClearBtnDisplay();
 	
 	//Send Msg to C++
@@ -598,7 +789,7 @@ function OnDeleteAllRecentFiles()
 
 function UpdateRecentClearBtnDisplay()
 {
-    let AllFile=$(".FileItem");
+    let AllFile=$("#FileList .FileItem");
 	let nFile=AllFile.length;	
 	if( nFile>0 )
 		$("#RecentClearAllBtn").show();

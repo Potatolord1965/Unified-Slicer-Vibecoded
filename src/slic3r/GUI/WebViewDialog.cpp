@@ -23,6 +23,18 @@
 #include "slic3r/Utils/NetworkAgent.hpp"
 #include "Plater.hpp"
 #include "ModelSiteView.hpp"
+#include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
+#include "libslic3r/OtherSlicerImport.hpp"
+#include "libslic3r/ProjectLibrary.hpp"
+#include <exception>
+#include <thread>
+#include <vector>
+#include <wx/app.h>
+#include <wx/base64.h>
+#include <wx/datetime.h>
+#include <wx/defs.h>
+#include <wx/dirdlg.h>
 #include <wx/filefn.h>
 #include <wx/filename.h>
 #include <sstream>
@@ -101,6 +113,27 @@ static json home_page_strings()
         {"clear_all", _u8L("Clear all")},
         {"remove", _u8L("Remove")},
         {"show_in_folder", _u8L("Show in folder")},
+        // TRN Home page heading of the list of every project file found on this computer.
+        {"all_projects", _u8L("All projects")},
+        {"add_folder", _u8L("Add folder")},
+        {"remove_folder", _u8L("Remove folder")},
+        {"refresh", _u8L("Refresh")},
+        {"search_projects", _u8L("Search projects")},
+        // TRN Shown while the home page looks through the chosen folders for project files.
+        {"searching_projects", _u8L("Searching…")},
+        {"card_view", _u8L("Card view")},
+        {"list_view", _u8L("List view")},
+        {"projects_add_folders", _u8L("Add the folders where you keep your projects. Projects you opened in this or another Orca-based slicer are listed here too.")},
+        {"projects_none", _u8L("No projects found in these folders.")},
+        {"projects_no_match", _u8L("No projects match your search.")},
+        // TRN Column headings of the home page's project list.
+        {"column_name", _u8L_CONTEXT("Name", "Project list")},
+        {"column_location", _u8L_CONTEXT("Location", "Project list")},
+        // TRN Column heading: the slicers whose recent list names the project.
+        {"column_opened_in", _u8L_CONTEXT("Opened in", "Project list")},
+        {"column_modified", _u8L_CONTEXT("Modified", "Project list")},
+        // TRN Tooltip of a project whose file is only in cloud storage (OneDrive and similar).
+        {"cloud_only_file", _u8L("Stored online. Opening it downloads it.")},
     };
 }
 
@@ -910,6 +943,111 @@ void WebViewPanel::SendRecentList(int images)
     std::wostringstream oss;
     pt::write_json(oss, req, false);
     RunScript(wxString::Format("window.postMessage(%s)", oss.str()));
+}
+
+// For the detached workers below: wxGetApp() is null once wx cleanup has started, so test the
+// instance first. This narrows the shutdown window; the searches also poll it to stop early.
+static bool app_closing() { return wxTheApp == nullptr || wxGetApp().is_closing(); }
+
+// Posts `message` to the home page as JSON. Non-ASCII is escaped, so the text survives any
+// conversion on the way, and file names that are not valid UTF-8 cannot make the dump throw.
+static void post_to_home_page(const json& message)
+{
+    if (WebViewPanel* home = WebViewPanel::if_built())
+        home->RunScript(wxString::Format("window.postMessage(%s)",
+                                         wxString::FromUTF8(message.dump(-1, ' ', true, json::error_handler_t::replace))));
+}
+
+void WebViewPanel::SendAllProjects()
+{
+    AppConfig& config  = *wxGetApp().app_config;
+    std::vector<std::string> folders = config.get_project_folders();
+    std::vector<ProjectLibrary::RecentList> recent{{SLIC3R_APP_NAME, config.get_recent_projects()}};
+    const boost::filesystem::path own_data_dir(data_dir());
+    const unsigned request = ++m_projects_request;
+
+    post_to_home_page({{"command", "all_projects_searching"}, {"folders", folders}});
+    std::thread([folders, recent = std::move(recent), own_data_dir, request]() mutable {
+        std::vector<ProjectLibrary::Project> projects;
+        try {
+            for (const OtherSlicers::AppLocation& location : OtherSlicers::find(own_data_dir))
+                recent.push_back({OtherSlicers::app_name(location.app), OtherSlicers::recent_projects(location)});
+            projects = ProjectLibrary::collect(folders, recent, {}, app_closing);
+        } catch (const std::exception& e) {
+            BOOST_LOG_TRIVIAL(warning) << "home page: listing the projects failed: " << e.what();
+        }
+        if (app_closing())
+            return;
+        wxGetApp().CallAfter([folders = std::move(folders), projects = std::move(projects), request]() {
+            WebViewPanel* home = app_closing() ? nullptr : WebViewPanel::if_built();
+            if (home == nullptr || request != home->m_projects_request)
+                return;
+            json list = json::array();
+            for (const ProjectLibrary::Project& project : projects)
+                list.push_back({{"path", project.path},
+                                {"project_name", boost::filesystem::path(project.path).filename().string()},
+                                {"time", project.modified != 0 ? into_u8(wxDateTime(project.modified).FormatISOCombined(' ')) : ""},
+                                {"opened_in", project.opened_in},
+                                {"cloud_only", project.cloud_only}});
+            post_to_home_page({{"command", "all_projects"}, {"folders", folders}, {"projects", std::move(list)}});
+        });
+    }).detach();
+}
+
+void WebViewPanel::SendProjectThumbnails(std::vector<std::string> paths)
+{
+    // The page asks for the cards in view; this bounds a single answer.
+    constexpr size_t max_batch = 64;
+    if (paths.size() > max_batch)
+        paths.resize(max_batch);
+    std::thread([paths = std::move(paths)]() {
+        json thumbnails = json::object();
+        for (const std::string& path : paths) {
+            if (app_closing())
+                return;
+            std::string png;
+            try {
+                // A cloud-only file would be downloaded just to show its picture.
+                if (!ProjectLibrary::is_cloud_only(boost::filesystem::path(path)))
+                    png = bbs_3mf_get_thumbnail(path.c_str());
+            } catch (const std::exception& e) {
+                BOOST_LOG_TRIVIAL(warning) << "home page: reading a project thumbnail failed: " << e.what();
+            }
+            thumbnails[path] = png.empty() ? std::string() :
+                                             "data:image/png;base64," + into_u8(wxBase64Encode(png.data(), png.size()));
+        }
+        if (app_closing())
+            return;
+        wxGetApp().CallAfter([thumbnails = std::move(thumbnails)]() {
+            if (!app_closing())
+                post_to_home_page({{"command", "project_thumbnails"}, {"thumbnails", thumbnails}});
+        });
+    }).detach();
+}
+
+void WebViewPanel::AddProjectFolder()
+{
+    AppConfig& config = *wxGetApp().app_config;
+    std::vector<std::string> folders = config.get_project_folders();
+    wxDirDialog dialog(this, _L("Choose a folder where you keep projects"),
+                       folders.empty() ? wxString() : from_u8(folders.back()), wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK)
+        return;
+    const std::string folder = into_u8(dialog.GetPath());
+    if (std::find(folders.begin(), folders.end(), folder) == folders.end()) {
+        folders.push_back(folder);
+        config.set_project_folders(folders);
+    }
+    SendAllProjects();
+}
+
+void WebViewPanel::RemoveProjectFolder(const std::string& folder)
+{
+    AppConfig& config = *wxGetApp().app_config;
+    std::vector<std::string> folders = config.get_project_folders();
+    folders.erase(std::remove(folders.begin(), folders.end(), folder), folders.end());
+    config.set_project_folders(folders);
+    SendAllProjects();
 }
 
 void WebViewPanel::SendDesignStaffpick(bool on)

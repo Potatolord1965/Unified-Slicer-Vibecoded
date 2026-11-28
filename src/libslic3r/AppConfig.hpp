@@ -388,6 +388,9 @@ public:
 
     std::vector<std::string> get_recent_projects() const;
     void set_recent_projects(const std::vector<std::string>& recent_projects);
+    // The folders the home page's "All projects" list searches for project files.
+    std::vector<std::string> get_project_folders() const { return get_numbered_list("project_folders"); }
+    void set_project_folders(const std::vector<std::string>& folders) { set_numbered_list("project_folders", folders); }
 
 	void set_mouse_device(const std::string& name, double translation_speed, double translation_deadzone, float rotation_speed, float rotation_deadzone, double zoom_speed, bool swap_yz, bool invert_x, bool invert_y, bool invert_z, bool invert_yaw, bool invert_pitch, bool invert_roll);
 	std::vector<std::string> get_mouse_device_names() const;
@@ -450,6 +453,10 @@ public:
     void remove_cloud_provider(const std::string& provider);
 
 private:
+	// A section holding a list as "001", "002", ... keys, in order.
+	std::vector<std::string> get_numbered_list(const std::string &section) const;
+	void set_numbered_list(const std::string &section, const std::vector<std::string> &list);
+
 	template<typename T>
 	bool get_3dmouse_device_numeric_value(const std::string &device_name, const char *parameter_name, T &out) const
 	{
